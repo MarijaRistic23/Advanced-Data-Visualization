@@ -1,0 +1,10 @@
+data/yellow_tripdata_2016-01.csv
+data/yellow_tripdata_2016-02.csv
+data/yellow_tripdata_2016-03.csv
+data/taxi_zones/taxi_zones.cpg
+data/taxi_zones/taxi_zones.dbf
+data/taxi_zones/taxi_zones.prj
+data/taxi_zones/taxi_zones.qmd
+data/taxi_zones/taxi_zones.shp
+data/taxi_zones/taxi_zones.shx
+config.cfg
