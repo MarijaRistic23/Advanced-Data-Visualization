@@ -1,0 +1,51 @@
+/* Fondo completo de la barra del slider */
+.vertical-slider {
+    writing-mode: bt-lr;
+    transform: rotate(270deg);
+    width: 475px;
+    height: 300px;
+    margin-left: 70px;
+    margin-top: 60px;
+}
+
+.rc-slider-rail {
+    background-color: #153E67 !important;
+    height: 6px;
+}
+
+/* Zona seleccionada (entre los dos handles) */
+.rc-slider-track {
+    background-color: #FFD700 !important;
+    height: 6px;
+}
+
+/* Estilo de los handles (botones deslizables) */
+.rc-slider-handle {
+    border-color: #FFD700 !important;
+    background-color: #FFD700 !important;
+}
+
+.rc-slider-mark-text {
+    transform: rotate(90deg) !important;
+    white-space: nowrap;
+    color: #153E67 !important; /* Color del texto */
+    font-weight: bold;
+    font-size: 12px;
+    margin-top: 10px; /* ↓ Baja el texto de los marks */
+}
+
+/* Puntos de los marks (ticks) en azul */
+.rc-slider-dot {
+    background-color: #153E67 !important;
+    border-color: #153E67 !important;
+}
+
+/* Ajusta si los dots no se ven bien (opcional) */
+.rc-slider-dot-active {
+    background-color: #FFD700 !important; /* Amarillo para el rango seleccionado */
+    border-color: #FFD700 !important;
+}
+
+.rc-slider-mark {
+    left: -18px;  /* Ajusta esta distancia para acercarlos */
+}

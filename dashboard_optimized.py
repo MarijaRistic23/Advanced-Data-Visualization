@@ -2,6 +2,7 @@ import geopandas as gpd
 from sqlalchemy import create_engine
 import plotly.graph_objects as go
 from shapely import wkt
+from shapely.wkb import loads as wkb_loads
 import pandas as pd
 import numpy as np
 import configparser
@@ -13,7 +14,6 @@ import dash
 from dash import dcc, html, Input, Output, callback, State
 import dash_daq as daq
 import dash_bootstrap_components as dbc
-import pandas as pd
 from datetime import time
 import math
 import warnings
@@ -24,14 +24,6 @@ db_name = "nyc_taxi_adv"
 username = config.get('credentials', 'username')
 password = config.get('credentials', 'password')
 
-COLORS = {
-    "background": '#153E67', #"#F5F5F5",   # Gris claro y suave
-    "accent": "#FFD700",       # Amarillo taxi para títulos y detalles
-    "text": "#222222",         # Texto principal
-    "blue": "#0099C6",         # Azul para gráficos
-    "purple": "#990099",       # Alternativa vibrante
-    "red": "#DC3912"           # Rojo para alertas o extremos
-}
 CRS = "EPSG:4326"
 
 db_url = f"postgresql://postgres:{password}@localhost:5432/nyc_taxi_adv"
@@ -77,72 +69,65 @@ gdf_airport_centroid["latitude"] = gdf_airport_centroid["centroid"].y
 gdf_airport_centroid.head()
 
 
+
 def fetch_airport(date, start_time, end_time, airport, selected_borough, toggle_value):
-    where_condition = ''
-    if toggle_value == 'dropoff':
-        where_condition = f"dz.zone = '{airport}' AND pz.borough = '{selected_borough}'"
-    else:
-        where_condition = f"pz.zone = '{airport}' AND dz.borough = '{selected_borough}'"
-        
+    where_clause = (f"dz.zone = '{airport}' AND pz.borough = '{selected_borough}'"
+                    if toggle_value == 'dropoff'
+                    else f"pz.zone = '{airport}' AND dz.borough = '{selected_borough}'")
+    
     query = f"""
-    SELECT 
-        ST_AsText(ST_Centroid(pz.geom)) as centroid_pickup, 
-        ST_AsText(ST_Centroid(dz.geom)) as centroid_dropoff,
-        COUNT(*) AS trip_count
-    FROM taxi t
-    JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
-    JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
-    WHERE {where_condition}
-    AND t.tpep_pickup_datetime between '{date} {start_time}' and '{date} {end_time}'
-    GROUP BY pz.geom, dz.geom
-    limit 50;
+        SELECT 
+            ST_AsBinary(ST_Centroid(pz.geom)) AS centroid_pickup, 
+            ST_AsBinary(ST_Centroid(dz.geom)) AS centroid_dropoff,
+            COUNT(*) AS trip_count
+        FROM taxi t
+        JOIN taxi_zones pz ON ST_Intersects(pz.geom, t.geom_pickup)
+        JOIN taxi_zones dz ON ST_Intersects(dz.geom, t.geom_dropoff)
+        WHERE {where_clause}
+        AND t.tpep_pickup_datetime BETWEEN '{date} {start_time}' AND '{date} {end_time}'
+        GROUP BY pz.borough, pz.geom, dz.geom
+        LIMIT 50;
     """
-    df_taxi = pd.read_sql(query, engine)
-    df_taxi["centroid_pickup"] = df_taxi["centroid_pickup"].apply(wkt.loads)
-    df_taxi["centroid_dropoff"] = df_taxi["centroid_dropoff"].apply(wkt.loads)
-    
-    gdf_airport = gpd.GeoDataFrame(df_taxi, geometry="centroid_pickup", crs=CRS) 
-    
-    gdf_airport["pickup_longitude"] = gdf_airport["centroid_pickup"].x
-    gdf_airport["pickup_latitude"] = gdf_airport["centroid_pickup"].y
-    
-    gdf_airport["dropoff_longitude"] = gdf_airport["centroid_dropoff"].apply(lambda p: p.x)
-    gdf_airport["dropoff_latitude"] = gdf_airport["centroid_dropoff"].apply(lambda p: p.y)
-    return gdf_airport
+
+    df = pd.read_sql(query, engine)
+    df['centroid_pickup'] = df['centroid_pickup'].apply(wkb_loads)
+    df['centroid_dropoff'] = df['centroid_dropoff'].apply(wkb_loads)
+
+    df['pickup_latitude'] = df['centroid_pickup'].apply(lambda p: p.y)
+    df['pickup_longitude'] = df['centroid_pickup'].apply(lambda p: p.x)
+    df['dropoff_latitude'] = df['centroid_dropoff'].apply(lambda p: p.y)
+    df['dropoff_longitude'] = df['centroid_dropoff'].apply(lambda p: p.x)
+
+    return df
 
 def fetch_airport_borough(date, start_time, end_time, airport, toggle_value):
-    where_condition = ''
-    group_by_condition = ''
-    select_condition = ''
     if toggle_value == 'dropoff':
-        where_condition = f"dz.zone = '{airport}'"
-        group_by_condition = "pz.borough, dz.geom"
-        select_condition = "pz.borough, ST_AsText(ST_Centroid(dz.geom)) as centroid_dropoff"
+        where_clause = f"dz.zone = '{airport}'"
+        group_by = "pz.borough"
+        select = "pz.borough"
+        centroid = "ST_AsBinary(ST_Centroid(dz.geom)) AS centroid"
     else:
-        where_condition = f"pz.zone = '{airport}'"
-        group_by_condition = "dz.borough, pz.geom"
-        select_condition = "dz.borough, ST_AsText(ST_Centroid(pz.geom)) as centroid_dropoff"
-    query = f"""
-    SELECT
-        {select_condition},
-        COUNT(*) AS trip_count
-    FROM taxi t
-    JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
-    JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
-    WHERE {where_condition}
-    AND t.tpep_pickup_datetime between '{date} {start_time}' and '{date} {end_time}'
-    GROUP BY {group_by_condition}
-    """
-    #print("Upit: ", query)
-    df_borough_airport = pd.read_sql(query, engine)
-    df_borough_airport["centroid_dropoff"] = df_borough_airport["centroid_dropoff"].apply(wkt.loads)
+        where_clause = f"pz.zone = '{airport}'"
+        group_by = "dz.borough"
+        select = "dz.borough"
+        centroid = "ST_AsBinary(ST_Centroid(pz.geom)) AS centroid"
 
-    gdf_borough_airport = gpd.GeoDataFrame(df_borough_airport, geometry="centroid_dropoff", crs=CRS) 
-    gdf_borough_airport["longitude"] = gdf_borough_airport["centroid_dropoff"].x
-    gdf_borough_airport["latitude"] = gdf_borough_airport["centroid_dropoff"].y
-    gdf_borough_airport.head()
-    
-    return gdf_borough_airport
+    query = f"""
+        SELECT {select}, {centroid}, COUNT(*) AS trip_count
+        FROM taxi t
+        JOIN taxi_zones pz ON ST_Intersects(pz.geom, t.geom_pickup)
+        JOIN taxi_zones dz ON ST_Intersects(dz.geom, t.geom_dropoff)
+        WHERE {where_clause}
+        AND t.tpep_pickup_datetime BETWEEN '{date} {start_time}' AND '{date} {end_time}'
+        GROUP BY {group_by}
+    """
+
+    df = pd.read_sql(query, engine)
+    df['centroid'] = df['centroid'].apply(wkb_loads)
+    df['latitude'] = df['centroid'].apply(lambda p: p.y)
+    df['longitude'] = df['centroid'].apply(lambda p: p.x)
+    return df
+
 
 def generate_large_arc(start, end, num_points=30, arc_height_factor=0.7):
     lat1, lon1 = start
@@ -161,6 +146,8 @@ def generate_large_arc(start, end, num_points=30, arc_height_factor=0.7):
 
         arc_lats.append(interpolated_lat)
         arc_lons.append(interpolated_lon)
+
+       # widths.append(10 * (1 - i) + 1)  # Linearno smanjenje od 10 do 1
 
     return arc_lats, arc_lons
 
@@ -194,6 +181,7 @@ def page_not_found(e):
 
 query_dates = "select distinct tpep_pickup_datetime::date from taxi order by tpep_pickup_datetime::date;"
 available_dates = pd.read_sql(query_dates, engine)["tpep_pickup_datetime"].tolist()
+#available_dates
 
 marks={i: {'label': available_dates[i].strftime('%Y-%m-%d'), 'style': {'color': 'red'}} 
         for i in range(0, len(available_dates), 10)}  # Oznake na svakih 10 dana
@@ -261,6 +249,8 @@ def plot_lines(fig, gdf_airport, color):
 def plot_lines_borough(fig, gdf_airport_borough , color, toggle_value):
     global borough_centroids, gdf_airport_centroid
 
+    
+    
     for i, row in gdf_airport_borough.iterrows():
         borough_name = row['borough']
         centroid = gdf_borough[gdf_borough['borough'] == borough_name]
@@ -361,25 +351,24 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
     print(start_time, end_time)
 
     airports = ['JFK Airport', 'LaGuardia Airport','Newark Airport']
-    color_list = [COLORS["red"], COLORS["purple"], COLORS["blue"]]
+    color = ['red', 'blue', 'green']
     
     fig = go.Figure()
         
     if selected_borough:
         zones_in_borough = gdf[gdf['borough'] == selected_borough]
         fig = show_polygons(fig, zones_in_borough, "zone")
-
         for i, airport in enumerate(airports):
             gdf_airport_zone = fetch_airport(selected_date, start_time, end_time, airport, selected_borough, toggle_value)
-            fig = plot_places(fig, gdf_airport_zone, color_list[i])
-            fig = plot_lines(fig, gdf_airport_zone, color_list[i])
+            fig = plot_places(fig, gdf_airport_zone, color[i])
+            fig = plot_lines(fig, gdf_airport_zone, color[i])
         
     else:
         fig = show_polygons(fig, gdf_borough, "borough")
         for i, airport in enumerate(airports):
             print(f"Iscrava se za aerodrom {airport}")
             gdf_airport_borough = fetch_airport_borough(selected_date, start_time, end_time, airport, toggle_value)
-            fig = plot_lines_borough(fig, gdf_airport_borough , color_list[i], toggle_value)
+            fig = plot_lines_borough(fig, gdf_airport_borough , color[i], toggle_value)
 
     fig.update_layout(
         uirevision="constant",
@@ -397,17 +386,17 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
     return fig
 
 def get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value):
-    extra_condition = ''
+    ekstra_condition = ''
     cond = ''
     if toggle_value == 'dropoff':
         cond = 'dz.zone'
         if selected_borough:
-            extra_condition = f"AND pz.borough = '{selected_borough}'"
+            ekstra_condition = f"AND pz.borough = '{selected_borough}'"
             print("desio se ekstra condition")
     else:
         cond = 'pz.zone'
         if selected_borough:
-            extra_condition = f"AND dz.borough = '{selected_borough}'"
+            ekstra_condition = f"AND dz.borough = '{selected_borough}'"
     query = f'''
     SELECT 
         {cond} as borough,
@@ -416,7 +405,7 @@ def get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value):
     FROM taxi t
     JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
     JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
-    WHERE {cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {extra_condition}
+    WHERE {cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {ekstra_condition}
     AND DATE(t.tpep_pickup_datetime) = '{selected_date}'
     GROUP BY {cond}, EXTRACT(HOUR FROM t.tpep_pickup_datetime)
     ORDER BY hour, borough;
@@ -435,21 +424,22 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
 
     stream_fig = go.Figure()
     boroughs_sorted = df_taxi_frequency_pivot.drop(columns='hour').sum().sort_values(ascending=False).index
-    color_list = [COLORS["purple"], COLORS["red"], COLORS["blue"]]
+
     
-    for i, borough in enumerate(boroughs_sorted):
+    for borough in boroughs_sorted:
         stream_fig.add_trace(go.Scatter(
             x=df_taxi_frequency_pivot['hour'],
             y=df_taxi_frequency_pivot[borough],
             name=borough,
             mode='lines',
             stackgroup='one',  # Ključno za streamgraph!
-            line=dict(width=0.5, shape='spline', color=color_list[i]),  # Glatke krivine
+            line=dict(width=0.5, shape='spline'),  # Glatke krivine
             hoverinfo='x+y+name',
             hovertemplate=f'<b>{borough}</b><br>Hour: %{{x}}<br>Num of drives: %{{y}}<extra></extra>'
         ))
 
     stream_fig.update_layout(
+        title='Number of taxi rides per airport for the selected day',
         xaxis_title='Hour in day',
         yaxis_title='Num of drives',
         hovermode='x unified',
@@ -457,76 +447,9 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
         plot_bgcolor='white',
         xaxis=dict(tickvals=list(range(24)), ticktext=[f'{h}:00' for h in range(24)]),
         yaxis=dict(showgrid=True, gridcolor='lightgray'),
-        legend=dict(
-            orientation="v",          # Horizontal
-            yanchor="bottom",
-            y=1.1,                    # Por encima del gráfico
-            xanchor="center"
-        )
     )
     print("zavrseno pravljenje stream figure")
     return stream_fig
-
-def get_tip_amount(selected_date, time_range):
-    start_hour, end_hour = time_range
-    start_time = time(hour=int(start_hour), minute=int((start_hour % 1) * 60))
-    end_time = time(hour=int(end_hour), minute=int((end_hour % 1) * 60))
-    
-    ekstra_condition = ''
-    cond = 'pz.borough'
-    query = f'''
-    SELECT 
-        {cond} as borough,
-        ST_AsText(ST_Union(pz.geom)) AS geometry,
-        AVG(tip_amount) AS average_tip
-    FROM taxi t
-    JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
-    JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
-    WHERE dz.zone IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {ekstra_condition}
-    AND t.tpep_pickup_datetime between '{selected_date} {start_time}' and '{selected_date} {end_time}'
-    GROUP BY pz.borough, pz.geom 
-    '''
-    df_pom = pd.read_sql(query, engine)
-    df_pom['geometry'] = df_pom['geometry'].apply(wkt.loads)
-    gdf_pom = gpd.GeoDataFrame(df_pom, geometry='geometry')
-    return gdf_pom
-
-def update_heatmap(selected_date, time_range):
-    
-    gdf_tip_amount = get_tip_amount(selected_date, time_range)
-    
-    heatmap_fig = go.Figure(go.Choroplethmapbox(
-        geojson=gdf_tip_amount.geometry.__geo_interface__,
-        locations=gdf_tip_amount.index,
-        z=gdf_tip_amount['average_tip'],
-        text=gdf_tip_amount['borough'],
-        colorscale=[[0, COLORS['red']], [0.5, COLORS['purple']], [1, COLORS['blue']]],
-        marker_line_width=1,
-        marker_opacity=0.8,
-        marker_line_color='white'
-    ))
-
-    # Konfiguracija layout-a
-    heatmap_fig.update_layout(
-        mapbox={
-        "accesstoken": "pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg",
-        "style": "light",
-        "center": {"lat": 40.74, "lon": -73.88},
-        "zoom": 9.5
-        },
-        title_x=0.5,
-        margin={"r":0,"t":40,"l":0,"b":0},
-        coloraxis_colorbar={
-            'title': 'Iznos ($)',
-            'thickness': 15,
-            'len': 0.5
-        }
-    )
-
-    heatmap_fig.update_traces(
-        hovertemplate="<b>%{text}</b><br>Prosečan tip: $%{z:.2f}<extra></extra>"
-    )
-    return heatmap_fig
 
 initial_index = len(available_dates) // 2  
 initial_date = available_dates[initial_index] 
@@ -534,216 +457,103 @@ initial_date = available_dates[initial_index]
 initial_time_range = [8.0, 12.0]
 figure_initial = update_map(initial_date, initial_time_range, None, 'dropoff')
 streamgraph_figure_initial = update_streamgraph(initial_date, None, 'dropoff')
-heatmap_figure_initial = update_heatmap(initial_date, initial_time_range)
-
-white_square_shadow_box = '0 0 10px rgba(0,0,0,0.1)'
 
 app.layout = html.Div([
-    html.Div([  # FILA PRINCIPAL con dos columnas
-
-        # Columna 1: Menú lateral
-        html.Div([
-            html.Img(
-                src="/assets/Nyctlc_logo.webp",
-                style={
-                    'width': '35%',
-                    'height': 'auto',
-                    'display': 'block',
-                    'marginLeft': 'auto',
-                    'marginRight': 'auto',
-                    'marginBottom': '20px',
-                    'borderRadius': '10px'
-                }
+    html.H1("Airports traffic in NYC", style={'textAlign': 'center'}),
+    
+    # Horizontalni red sa kontrolama
+    html.Div([
+        # DatePicker na levoj strani
+        html.Div(
+            dcc.DatePickerSingle(
+                id='date-picker',
+                min_date_allowed=min(available_dates),
+                max_date_allowed=max(available_dates),
+                date=available_dates[initial_index],
+                first_day_of_week = 1,
+                show_outside_days = False,
+                display_format='YYYY-MM-DD',
+                style={'margin-right': '20px', 'display': 'inline-block'}
             ),
-
-            html.Div([
-                html.Div(id='toggle-label', style={
-                    'textAlign': 'center',
-                    'fontWeight': 'bold',
-                    'marginBottom': '10px'
-                }),
+            style={'width': '30%', 'display': 'inline-block'}
+        ),
+        
+        # ToggleSwitch na desnoj strani
+        html.Div(
+            [
+                html.Div("from airport", style={'text-align': 'center', 'margin-bottom': '5px'}),
                 daq.ToggleSwitch(
                     id='location-toggle',
                     value=False,
                     vertical=True,
-                    color=COLORS['accent']
-                )
-            ], style={
-                'display': 'flex',
-                'flexDirection': 'column',
-                'alignItems': 'center'
-            }),
-
-            html.Br(),
-
-            html.Div(
-                dcc.DatePickerSingle(
-                    id='date-picker',
-                    min_date_allowed=min(available_dates),
-                    max_date_allowed=max(available_dates),
-                    date=available_dates[initial_index],
-                    first_day_of_week=1,
-                    show_outside_days=False,
-                    display_format='DD-MM-YYYY',
-                    style={
-                        'width': '100%',
-                        'maxWidth': '250px',
-                        'margin': '0 auto',
-                        'display': 'block'
-                    }
+                    color="#FFD700"
                 ),
-                style={
-                    'width': '100%',
-                    'marginTop': '20px',
-                    'marginLeft': '55px',
-                }
-            ),
+                html.Div("to airport", style={'text-align': 'center', 'margin-top': '5px'})
+            ],
+            style={'display': 'inline-block', 'vertical-align': 'top', 'margin-left': '20px'}
+        )
+    ], style={'margin': '20px 0', 'text-align': 'center'}),
+    
+    # RangeSlider
+    dcc.RangeSlider(
+        id='time-range-slider',
+        min=0,
+        max=24,
+        step=1,
+        marks={i: f"{i}:00h" for i in range(0, 25, 4)},
+        value=initial_time_range,
+        tooltip={"placement": "bottom", "always_visible": True}
+    ),
+    
+    # Grafikon
+    dcc.Graph(id='map-graph', figure=figure_initial),
 
-            html.Br(), html.Br(),
-
-            dcc.RangeSlider(
-                id='time-range-slider',
-                min=0,
-                max=24,
-                step=1,
-                marks={i: f"{i}:00h" for i in range(0, 25, 4)},
-                value=initial_time_range,
-                tooltip={"placement": "bottom", "always_visible": False},
-                className='vertical-slider'
-            )
-        ], style={
-            'width': '20%',
-            'backgroundColor': '#D0E7F9',
-            'padding': '0px',
-            'margin': '0px',
-            'boxShadow': white_square_shadow_box
-        }),
-
-        # Columna 2: Contenido principal (título + gráficos)
-        html.Div([
-            html.H1("Taxi trips in NYC", style={
-                'textAlign': 'center',
-                'color': COLORS['accent'],
-                'marginBottom': '20px'
-            }),
-
-            # Flowmap
-            html.Div([
-                html.H3("Trips to/from airports", style={'textAlign': 'center', 'marginBottom': '10px'}),
-                dcc.Graph(id='map-graph', figure=figure_initial)
-            ], style={
-                'backgroundColor': 'white',
-                'borderRadius': '10px',
-                'padding': '20px',
-                'marginBottom': '20px',
-                'boxShadow': white_square_shadow_box
-            }),
-
-            # Heatmap + Streamgraph
-            html.Div([
-                html.Div([
-                    html.H3("Tips per zone", style={'textAlign': 'center', 'marginBottom': '10px'}),
-                    dcc.Graph(id='heatmap-graph', figure=heatmap_figure_initial)
-                ], style={
-                    'width': '50%',
-                    'backgroundColor': 'white',
-                    'borderRadius': '10px',
-                    'padding': '20px',
-                    'marginRight': '10px',
-                    'boxShadow': white_square_shadow_box
-                }),
-
-                html.Div([
-                    html.H3("Number of taxi trips per airport", style={'textAlign': 'center', 'marginBottom': '10px'}),
-                    dcc.Graph(id='stream-graph', figure=streamgraph_figure_initial)
-                ], style={
-                    'width': '50%',
-                    'backgroundColor': 'white',
-                    'borderRadius': '10px',
-                    'padding': '20px',
-                    'boxShadow': white_square_shadow_box
-                })
-            ], style={'display': 'flex'})
-        ], style={
-            'width': '80%',
-            'padding': '20px'
-        })
-
-    ], style={'display': 'flex', 'margin': '0px'}),
-
-], style={
-    'backgroundColor': COLORS['background'],
-    'padding': '0px',
-    'minHeight': '100vh',
-    'margin': '0px'
-})
+    # Streamgraph
+    dcc.Graph(id='stream-graph', figure = streamgraph_figure_initial)
+])
 
 
-
-@app.callback(
-    Output('toggle-label', 'children'),
-    Input('location-toggle', 'value')
-)
-def update_toggle_label(toggle_value):
-    return "From airport" if toggle_value is False else "To airport"
 
 @callback(
     [Output("map-graph", "figure"), Output('time-range-slider', 'value'), Output('stream-graph', 'figure')],
     [Input("date-picker", "date"), Input('time-range-slider', 'value'), Input('map-graph', 'clickData'), Input('location-toggle', 'value' )],
     [State('stream-graph', 'figure')] 
 )
-def normalize_time_range(time_range):
+def combined_callback(selected_date, time_range, click_data, toggle_value, curr_stream_figure):
     start, end = time_range
     if end >= 24:
         end = 23.9833
-    return start, end
-
-def get_triggered_id():
+        time_range = [start, end]
+        
     ctx = dash.callback_context
-    triggered = ctx.triggered[0]['prop_id'] if ctx.triggered else ''
+    triggered = ctx.triggered[0]['prop_id']
     print(f"okinuo se dogadjaj {triggered}")
-    return triggered
+    if toggle_value == False:
+        toggle_value = 'dropoff'
+    else:
+        toggle_value = 'pickup'
+    
+    selected_borough = None
+    if click_data and 'points' in click_data:
+        print("clickData:", click_data)  # Debug
+        for point in click_data['points']:
+            borough = point.get('text')  # bezbedno čitanje teksta
+            if borough:
+                if borough in gdf_borough['borough'].values:
+                    selected_borough = borough
+                    print("clicked okrug:", selected_borough)
+            else:
+                print("Nisam nasao customdata")
+    
+    # Generisanje nove mape sa svim parametrima
+    fig = update_map(selected_date, time_range, selected_borough, toggle_value)
 
-def normalize_toggle_value(toggle_value):
-    return 'pickup' if toggle_value else 'dropoff'
-
-def extract_selected_borough(click_data):
-    if not click_data or 'points' not in click_data:
-        return None
-
-    print("clickData:", click_data)  # Debug
-    for point in click_data['points']:
-        borough = point.get('text')
-        if borough and borough in gdf_borough['borough'].values:
-            print("clicked okrug:", borough)
-            return borough
-        else:
-            print("Nisam nasao customdata")
-    return None
-
-def update_streamgraph_conditionally(triggered, selected_date, selected_borough, toggle_value, curr_stream_figure):
-    if (
-        triggered == 'date-picker.date'
-        or selected_borough
-        or triggered == 'location-toggle.value'
-        or (triggered == 'map-graph.clickData' and selected_borough is None)
-    ):
-        return update_streamgraph(selected_date, selected_borough, toggle_value)
-    return curr_stream_figure
-
-def combined_callback(selected_date, time_range, click_data, toggle_value, curr_stream_figure):
-    start, end = normalize_time_range(time_range)
-    triggered = get_triggered_id()
-    toggle_value = normalize_toggle_value(toggle_value)
-    selected_borough = extract_selected_borough(click_data)
-
-    fig = update_map(selected_date, [start, end], selected_borough, toggle_value)
-    streamgraph_fig = update_streamgraph_conditionally(
-        triggered, selected_date, selected_borough, toggle_value, curr_stream_figure
-    )
-
-    return fig, [start, end] if end >= 24 else dash.no_update, streamgraph_fig
-
-
+    streamgraph_fig = ''
+    if triggered == 'date-picker.date' or selected_borough or triggered == 'location-toggle.value' or (triggered == 'map-graph.clickData' and selected_borough is None):
+        streamgraph_fig = update_streamgraph(selected_date, selected_borough, toggle_value)
+    else:
+        streamgraph_fig = curr_stream_figure
+    return fig, time_range if end >= 24 else dash.no_update, streamgraph_fig
+    
 if __name__ == "__main__":
     app.run(debug=False)
