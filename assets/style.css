@@ -1,7 +1,14 @@
 /* Fondo completo de la barra del slider */
+@font-face {
+    font-family: 'Gotham';
+    src: url('Gotham-Bold.otf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
 .vertical-slider {
     writing-mode: bt-lr;
-    transform: rotate(270deg);
+    /*transform: rotate(0deg);*/
     width: 475px;
     height: 300px;
     margin-left: 70px;
@@ -26,11 +33,12 @@
 }
 
 .rc-slider-mark-text {
-    transform: rotate(90deg) !important;
+    /*transform: rotate(90deg) !important;*/
     white-space: nowrap;
     color: #153E67 !important; /* Color del texto */
     font-weight: bold;
     font-size: 12px;
+    font-family: 'Gotham';
     margin-top: 10px; /* ↓ Baja el texto de los marks */
 }
 
@@ -48,4 +56,58 @@
 
 .rc-slider-mark {
     left: -18px;  /* Ajusta esta distancia para acercarlos */
+}
+
+.custom-date .DateInput_input {
+    font-family: 'Gotham';
+    font-size: 16px;
+    font-weight: bold;
+    color: #153E67;
+    text-align: center;
+}
+
+.custom-toggle .dash-daq-toggle-switch__handle {
+    background-color: #ccc;  /* color del círculo */
+}
+
+/* Color del fondo del switch cuando está en False */
+/* Estilo general del track (barra) */
+.custom-toggle .dash-daq-toggle-switch__input:not(:checked) ~ .dash-daq-toggle-switch__track {
+    background-color: #153E67 !important; /* azul oscuro para OFF */
+}
+
+/* Opcional: cambiar color cuando está ON (checked) */
+.custom-toggle .dash-daq-toggle-switch__input:checked ~ .dash-daq-toggle-switch__track {
+    background-color: #28a745 !important; /* verde para ON */
+}
+
+/* Mantén estilo handle igual */
+.custom-toggle .dash-daq-toggle-switch__handle {
+    background-color: #153E67;
+    border-radius: 50%;
+    box-shadow: 0 0 2px rgba(0,0,0,0.3);
+    transition: left 0.3s ease;
+}
+
+.custom-date .CalendarDay__selected {
+    background: #153E67 !important;
+    color: white !important;
+}
+
+.floating-tab {
+    position: fixed;
+    top: 50%;
+    right: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: white;
+    color: #153E67;
+    border: 2px solid #153E67;
+    border-radius: 12px;
+    padding: 30px;
+    z-index: 9999;
+    width: 700px;
+    box-shadow:  0 5px 15px rgba(0, 0, 0, 0.3);
+    font-family: 'Gotham';
+    text-align: center;
 }

@@ -74,8 +74,10 @@ df_airport_centroid["centroid"] = df_airport_centroid["centroid"].apply(wkt.load
 gdf_airport_centroid = gpd.GeoDataFrame(df_airport_centroid, geometry="centroid", crs=CRS) 
 gdf_airport_centroid["longitude"] = gdf_airport_centroid["centroid"].x
 gdf_airport_centroid["latitude"] = gdf_airport_centroid["centroid"].y
-gdf_airport_centroid.head()
 
+flowmap_title = None
+heatmap_tittle = None
+streamgraph_title = None
 
 def fetch_airport(date, start_time, end_time, airport, selected_borough, toggle_value):
     where_condition = ''
@@ -387,7 +389,7 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
             accesstoken="pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg", 
             style="light",  #"light" "dark", "satellite", "streets"
             center=dict(lat=40.7128, lon=-74.0060),  # Centar NYC
-            zoom=9.5,
+            zoom=9.2,
             bearing=-20
         ),
         margin=dict(r=0, t=0, l=0, b=0),
@@ -398,14 +400,13 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
 
 def get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value):
     extra_condition = ''
-    cond = ''
+    cond = 'dz.zone'
     if toggle_value == 'dropoff':
-        cond = 'dz.zone'
+        
         if selected_borough:
             extra_condition = f"AND pz.borough = '{selected_borough}'"
             print("desio se ekstra condition")
     else:
-        cond = 'pz.zone'
         if selected_borough:
             extra_condition = f"AND dz.borough = '{selected_borough}'"
     query = f'''
@@ -467,52 +468,132 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
     print("zavrseno pravljenje stream figure")
     return stream_fig
 
-def get_tip_amount(selected_date, time_range):
+def get_tip_amount_borough(selected_date, time_range, toggle_value):
     start_hour, end_hour = time_range
     start_time = time(hour=int(start_hour), minute=int((start_hour % 1) * 60))
     end_time = time(hour=int(end_hour), minute=int((end_hour % 1) * 60))
     
-    ekstra_condition = ''
-    cond = 'pz.borough'
+    where_cond = ''
+    cond = ''
+    if toggle_value == 'dropoff':
+        cond = 'pz.borough'
+        where_cond = 'dz.zone'
+    else:
+        cond = 'dz.borough'
+        where_cond = 'pz.zone'
+
     query = f'''
     SELECT 
         {cond} as borough,
-        ST_AsText(ST_Union(pz.geom)) AS geometry,
-        AVG(tip_amount) AS average_tip
+        AVG(t.tip_amount) AS average_tip
     FROM taxi t
     JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
     JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
-    WHERE dz.zone IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {ekstra_condition}
+    WHERE {where_cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport')
     AND t.tpep_pickup_datetime between '{selected_date} {start_time}' and '{selected_date} {end_time}'
-    GROUP BY pz.borough, pz.geom 
+    GROUP BY {cond}
     '''
-    df_pom = pd.read_sql(query, engine)
-    df_pom['geometry'] = df_pom['geometry'].apply(wkt.loads)
-    gdf_pom = gpd.GeoDataFrame(df_pom, geometry='geometry')
-    return gdf_pom
 
-def update_heatmap(selected_date, time_range):
+    df_pom = pd.read_sql(query, engine)
+    return df_pom
+
+def get_tip_amount(selected_date, time_range, selected_borough, toggle_value):
+    start_hour, end_hour = time_range
+    start_time = time(hour=int(start_hour), minute=int((start_hour % 1) * 60))
+    end_time = time(hour=int(end_hour), minute=int((end_hour % 1) * 60))
     
-    gdf_tip_amount = get_tip_amount(selected_date, time_range)
-    
+    where_cond = 'dz.zone'
+    cond = ''
+    if toggle_value == 'dropoff':
+        cond = 'pz'
+        
+    else:
+        cond = 'dz'
+
+    query = f'''
+    SELECT 
+        {cond}.zone as zone,
+        ST_AsText({cond}.geom) as geometry,
+        AVG(t.tip_amount) AS average_tip
+    FROM taxi t
+    JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
+    JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
+    WHERE {where_cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport')
+    AND {cond}.borough = '{selected_borough}'
+    AND t.tpep_pickup_datetime between '{selected_date} {start_time}' and '{selected_date} {end_time}'
+    GROUP BY {cond}.zone, {cond}.geom 
+    '''
+
+    df_pom = pd.read_sql(query, engine)
+    return df_pom
+
+def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
+    if selected_borough:
+        query = f'''SELECT zone, borough, ST_AsText(geom) AS geom
+        FROM taxi_zones
+        WHERE borough = '{selected_borough}';
+        '''
+        df_zone = pd.read_sql(query, engine)
+        df_zone["geom"] = df_zone["geom"].apply(wkt.loads)
+        df_tip_amount = get_tip_amount(selected_date, time_range, selected_borough, toggle_value)
+        df_merge = df_zone.merge(df_tip_amount, on=['zone'], how='left', validate=None)
+        gdf_tip_amount =  gpd.GeoDataFrame(df_merge, geometry="geom", crs=CRS)
+
+        gdf_tip_amount['hover_text'] = gdf_tip_amount.apply(
+            lambda x: f"{x['zone']}<br>Average tip: {x['average_tip']:.2f}" 
+                if pd.notna(x['average_tip']) else f"{x['zone']}<br>No drives",
+                axis=1
+        )
+
+        heatmap_tittle = f"Average tip amount by zone in {selected_borough}"
+
+    else:
+        global df_boroug_centroid
+        df_tip_amount = get_tip_amount_borough(selected_date, time_range, toggle_value)
+        df_merge = df_borough_centroid.merge(df_tip_amount, on='borough', how='left')
+        gdf_tip_amount =  gpd.GeoDataFrame(df_merge, geometry="geom", crs=CRS)
+
+        gdf_tip_amount['hover_text'] = gdf_tip_amount.apply(
+            lambda x: f"{x['borough']}<br>Average tip: {x['average_tip']:.2f}"
+                if pd.notna(x['average_tip']) else f"{x['borough']}<br>No drives",
+                axis=1
+        )
+        heatmap_tittle = "Average tip amount by borough in NYC"
+
     heatmap_fig = go.Figure(go.Choroplethmapbox(
         geojson=gdf_tip_amount.geometry.__geo_interface__,
         locations=gdf_tip_amount.index,
-        z=gdf_tip_amount['average_tip'],
-        text=gdf_tip_amount['borough'],
+        z=gdf_tip_amount['average_tip'].where(gdf_tip_amount['average_tip'].notna()),
+        text=gdf_tip_amount['hover_text'],
         colorscale=[[0, COLORS['red']], [0.5, COLORS['purple']], [1, COLORS['blue']]],
+        hoverinfo='text',
         marker_line_width=1,
         marker_opacity=0.8,
-        marker_line_color='white'
+        marker_line_color='white',
+        showscale=True
+    ))
+    heatmap_fig.add_trace(go.Choroplethmapbox(
+    geojson=gdf_tip_amount.geometry.__geo_interface__,
+    locations=gdf_tip_amount.index,
+    z=np.where(gdf_tip_amount['average_tip'].isna(), 0, np.nan),
+    text=gdf_tip_amount['hover_text'],
+        hoverinfo = 'text',
+    colorscale=[[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']],  # Potpuno providno
+    marker_line_width=1,
+    marker_opacity=1,
+    marker_line_color='gray',  # Kontura za None vrednosti
+    showscale=False,  # Sakrij legendu za ovaj sloj
+    below=''  # Postavi ispod obojenih borough-a
     ))
 
     # Konfiguracija layout-a
     heatmap_fig.update_layout(
+        uirevision=None,
         mapbox={
         "accesstoken": "pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg",
         "style": "light",
-        "center": {"lat": 40.74, "lon": -73.88},
-        "zoom": 9.5
+        "center": {"lat": 40.7259855, "lon": -74.0346485},
+        "zoom": 8.9
         },
         title_x=0.5,
         margin={"r":0,"t":40,"l":0,"b":0},
@@ -522,10 +603,6 @@ def update_heatmap(selected_date, time_range):
             'len': 0.5
         }
     )
-
-    heatmap_fig.update_traces(
-        hovertemplate="<b>%{text}</b><br>Prosečan tip: $%{z:.2f}<extra></extra>"
-    )
     return heatmap_fig
 
 initial_index = len(available_dates) // 2  
@@ -534,73 +611,82 @@ initial_date = available_dates[initial_index]
 initial_time_range = [8.0, 12.0]
 figure_initial = update_map(initial_date, initial_time_range, None, 'dropoff')
 streamgraph_figure_initial = update_streamgraph(initial_date, None, 'dropoff')
-heatmap_figure_initial = update_heatmap(initial_date, initial_time_range)
+heatmap_figure_initial = update_heatmap(initial_date, initial_time_range, None, 'dropoff')
 
 white_square_shadow_box = '0 0 10px rgba(0,0,0,0.1)'
 
 app.layout = html.Div([
-    html.Div([  # FILA PRINCIPAL con dos columnas
 
-        # Columna 1: Menú lateral
+    # Contenedor flotante unificado
+    html.Div([
+
+        # Subfila 1: Logo, toggle, date picker
         html.Div([
+            # Logo a la izquierda
             html.Img(
                 src="/assets/Nyctlc_logo.webp",
                 style={
-                    'width': '35%',
-                    'height': 'auto',
-                    'display': 'block',
-                    'marginLeft': 'auto',
-                    'marginRight': 'auto',
-                    'marginBottom': '20px',
-                    'borderRadius': '10px'
+                    'height': '50px',
+                    'marginRight': '20px'
                 }
             ),
 
+            html.Div(style={'flexGrow': '0.35'}),
+            
+            # Toggle antes del centro
             html.Div([
                 html.Div(id='toggle-label', style={
-                    'textAlign': 'center',
-                    'fontWeight': 'bold',
-                    'marginBottom': '10px'
+                    'marginRight': '10px',
+                    'fontFamily': 'Gotham',
+                    'color': COLORS['background'],
+                    'fontWeight': 'bold'
                 }),
+
                 daq.ToggleSwitch(
                     id='location-toggle',
                     value=False,
-                    vertical=True,
-                    color=COLORS['accent']
+                    vertical=False,
+                    color=COLORS['accent'],
+                    className='custom-toggle',
                 )
             ], style={
                 'display': 'flex',
-                'flexDirection': 'column',
-                'alignItems': 'center'
+                'alignItems': 'center',
+                'marginRight': '20px'
             }),
 
-            html.Br(),
+            # Separador flexible que empuja el DatePicker hacia la derecha del centro
+            html.Div(style={'flexGrow': '0.25'}),
 
-            html.Div(
-                dcc.DatePickerSingle(
-                    id='date-picker',
-                    min_date_allowed=min(available_dates),
-                    max_date_allowed=max(available_dates),
-                    date=available_dates[initial_index],
-                    first_day_of_week=1,
-                    show_outside_days=False,
-                    display_format='DD-MM-YYYY',
-                    style={
-                        'width': '100%',
-                        'maxWidth': '250px',
-                        'margin': '0 auto',
-                        'display': 'block'
-                    }
-                ),
-                style={
-                    'width': '100%',
-                    'marginTop': '20px',
-                    'marginLeft': '55px',
-                }
+            # Date Picker después del centro
+            dcc.DatePickerSingle(
+                id='date-picker',
+                className='custom-date',
+                min_date_allowed=min(available_dates),
+                max_date_allowed=max(available_dates),
+                date=available_dates[initial_index],
+                first_day_of_week=1,
+                show_outside_days=False,
+                display_format='DD-MM-YYYY'
             ),
+        ], style={
+            'position': 'sticky',
+            'top': '0',
+            'zIndex': '1000',
+            'backgroundColor': '#D0E7F9',
+            'boxShadow': white_square_shadow_box,
+            'width': '100vw',
+            'left': '0',
+            'right': '0',
+            'margin': '0 auto',
+            'display': 'flex',
+            'alignItems': 'center',
+            'padding': '10px 30px'
+        }),
 
-            html.Br(), html.Br(),
 
+        # Subfila 2: Slider
+        html.Div([
             dcc.RangeSlider(
                 id='time-range-slider',
                 min=0,
@@ -609,75 +695,149 @@ app.layout = html.Div([
                 marks={i: f"{i}:00h" for i in range(0, 25, 4)},
                 value=initial_time_range,
                 tooltip={"placement": "bottom", "always_visible": False},
-                className='vertical-slider'
+                className='horizontal-slider'
             )
         ], style={
-            'width': '20%',
-            'backgroundColor': '#D0E7F9',
-            'padding': '0px',
-            'margin': '0px',
+            'padding': '10px 20px 10px 20px',
+        }),
+
+    ], style={
+        'position': 'sticky',
+        'top': '0',
+        'zIndex': '1000',
+        'backgroundColor': '#D0E7F9',
+        'boxShadow': white_square_shadow_box,
+        'margin': '0',
+        'width': '100%',
+    }),
+    
+    html.Div([
+    # Contenedor de instrucciones
+        html.Div([
+            html.Button("X", id="close-instructions", n_clicks=0, style={
+                'position': 'absolute',
+                'top': '10px',
+                'right': '10px',
+                'background': 'none',
+                'border': 'none',
+                'fontSize': '20px',
+                'cursor': 'pointer'
+            }),
+            html.H4("How to use this dashboard", style={
+                'marginBottom': '10px',
+                'color': COLORS['background'],
+                'fontFamily': 'Gotham'
+            }),
+        html.P("""
+        - Use the toggle to switch between trips from or to the airports.
+        - Pick a specific day using the date picker.
+        - Filter trips by hours with the slider.
+
+        Visualizations:
+
+        - Flowmap: Shows trips between airports and boroughs. Click to drill down or back.
+        - Heatmap: Average tips per zone. Click to drill down or back.
+        - Streamgraph: Trips over time. Hover for details.
+        """, style={
+                    'whiteSpace': 'pre-line',
+                    'lineHeight': '1.5',
+                    'color': '#153E67',
+                    'fontFamily': 'Gotham'
+                })
+            ], id='instructions-box', style={
+                'position': 'fixed',
+                'top': '300px',
+                'left': '50%',
+                'right': '50%',
+                'transform': 'translateX(-50%)',
+                'backgroundColor': 'white',
+                'padding': '20px 30px',
+                'borderRadius': '12px',
+                'boxShadow': white_square_shadow_box,
+                'zIndex': '2000',
+                'width': '90%',
+                'maxWidth': '600px'
+            })
+        ]),
+    
+    # Fila 3 - Título
+    html.Div([
+        html.H1("Taxi trips in NYC", style={
+            'textAlign': 'center',
+            'color': COLORS['accent'],
+            'fontFamily': 'Gotham',
+            'margin': '20px 0'
+        })
+    ]),
+
+    # Fila 4 - Flowmap
+    html.Div([
+        html.H3("Trips to/from airports", style={
+            'textAlign': 'center',
+            'color': COLORS['background'],
+            'fontFamily': 'Gotham',
+            'marginBottom': '10px'
+        }),
+        dcc.Graph(id='map-graph', figure=figure_initial)
+    ], style={
+        'backgroundColor': 'white',
+        'borderRadius': '10px',
+        'padding': '20px',
+        'margin': '0 20px 20px 20px',
+        'boxShadow': white_square_shadow_box
+    }),
+
+    # Fila 5 - Heatmap + Streamgraph
+    html.Div([
+        html.Div([
+            html.H3(heatmap_tittle, style={
+                'textAlign': 'center',
+                'color': COLORS['background'],
+                'fontFamily': 'Gotham',
+                'marginBottom': '10px'
+            }),
+            dcc.Graph(id='heatmap-graph', figure=heatmap_figure_initial)
+        ], style={
+            'width': '50%',
+            'backgroundColor': 'white',
+            'borderRadius': '10px',
+            'padding': '20px',
+            'marginRight': '10px',
             'boxShadow': white_square_shadow_box
         }),
 
-        # Columna 2: Contenido principal (título + gráficos)
         html.Div([
-            html.H1("Taxi trips in NYC", style={
+            html.H3("Number of taxi trips per airport", style={
                 'textAlign': 'center',
-                'color': COLORS['accent'],
-                'marginBottom': '20px'
+                'color': COLORS['background'],
+                'fontFamily': 'Gotham',
+                'marginBottom': '10px'
             }),
-
-            # Flowmap
-            html.Div([
-                html.H3("Trips to/from airports", style={'textAlign': 'center', 'marginBottom': '10px'}),
-                dcc.Graph(id='map-graph', figure=figure_initial)
-            ], style={
-                'backgroundColor': 'white',
-                'borderRadius': '10px',
-                'padding': '20px',
-                'marginBottom': '20px',
-                'boxShadow': white_square_shadow_box
-            }),
-
-            # Heatmap + Streamgraph
-            html.Div([
-                html.Div([
-                    html.H3("Tips per zone", style={'textAlign': 'center', 'marginBottom': '10px'}),
-                    dcc.Graph(id='heatmap-graph', figure=heatmap_figure_initial)
-                ], style={
-                    'width': '50%',
-                    'backgroundColor': 'white',
-                    'borderRadius': '10px',
-                    'padding': '20px',
-                    'marginRight': '10px',
-                    'boxShadow': white_square_shadow_box
-                }),
-
-                html.Div([
-                    html.H3("Number of taxi trips per airport", style={'textAlign': 'center', 'marginBottom': '10px'}),
-                    dcc.Graph(id='stream-graph', figure=streamgraph_figure_initial)
-                ], style={
-                    'width': '50%',
-                    'backgroundColor': 'white',
-                    'borderRadius': '10px',
-                    'padding': '20px',
-                    'boxShadow': white_square_shadow_box
-                })
-            ], style={'display': 'flex'})
+            dcc.Graph(id='stream-graph', figure=streamgraph_figure_initial)
         ], style={
-            'width': '80%',
-            'padding': '20px'
-        })
-
-    ], style={'display': 'flex', 'margin': '0px'}),
+            'width': '50%',
+            'backgroundColor': 'white',
+            'borderRadius': '10px',
+            'padding': '20px',
+            'boxShadow': white_square_shadow_box
+        }),
+    ], style={'display': 'flex', 'margin': '0 20px 20px 20px'})
 
 ], style={
     'backgroundColor': COLORS['background'],
-    'padding': '0px',
-    'minHeight': '100vh',
-    'margin': '0px'
+    'paddingBottom': '40px'
 })
 
+
+@app.callback(
+    Output('instructions-box', 'style'),
+    Input('close-instructions', 'n_clicks'),
+    prevent_initial_call=True
+)
+def hide_instructions(n_clicks):
+    if n_clicks:
+        return {'display': 'none'}
+    return dash.no_update
 
 
 @app.callback(
