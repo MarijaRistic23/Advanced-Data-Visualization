@@ -395,7 +395,6 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
     airports = ['JFK Airport', 'LaGuardia Airport','Newark Airport']
     arc_height_factor = [0.5, 0.7, 0.9]
     color_list = [COLORS["red"], COLORS["purple"], COLORS["blue"]]
-    flowmap_title = "Trips from/to airports"
     
     fig = go.Figure()
     
@@ -427,16 +426,6 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
         ),
         margin=dict(r=0, t=0, l=0, b=0),
         plot_bgcolor="white",
-        title={
-            'text': flowmap_title,
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {
-                'family': 'Gotham',
-                'size': 22,
-                'color': COLORS['background']
-            }
-        },
     )
     
     return fig
@@ -861,6 +850,12 @@ Visualizations:
 
         # Columna derecha: Flowmap
         html.Div([
+            html.H3("Trips from/to Airports", style={
+                'fontFamily': 'Gotham',
+                'color': COLORS['background'],
+                'marginBottom': '15px',
+                'textAlign': 'center'
+            }),
             dcc.Graph(id='map-graph', figure=figure_initial, style={'height': '100%'})
         ], style={
             'width': '70%',
