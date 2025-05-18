@@ -1,4 +1,16 @@
 /* Fondo completo de la barra del slider */
+/* Elimina márgenes/padding por defecto y pone fondo azul al body */
+html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #153E67;  /* Usa el valor exacto de COLORS['background'] */
+}
+
+/* Evita el "flickering" blanco en el scroll en algunos navegadores */
+body {
+    overflow-x: hidden;
+}
+
 @font-face {
     font-family: 'Gotham';
     src: url('Gotham-Bold.otf') format('truetype');
@@ -111,3 +123,18 @@
     font-family: 'Gotham';
     text-align: center;
 }
+
+/* Estilo de las opciones desplegables */
+.Select-menu {
+    font-family: 'Gotham';
+    font-size: 14px;
+    color: #153E67; /* mismo que COLORS['background'] */
+}
+
+/* Estilo del cuadro de selección */
+.Select-control {
+    font-family: 'Gotham';
+    font-size: 14px;
+    color: #153E67;
+}
+

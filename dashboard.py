@@ -28,9 +28,9 @@ COLORS = {
     "background": '#153E67', #"#F5F5F5",   # Gris claro y suave
     "accent": "#FFD700",       # Amarillo taxi para títulos y detalles
     "text": "#222222",         # Texto principal
-    "blue": "#0099C6",         # Azul para gráficos
-    "purple": "#990099",       # Alternativa vibrante
-    "red": "#DC3912"           # Rojo para alertas o extremos
+    "blue": "#153E67",         # Azul para gráficos
+    "purple": "#28a745",       # Alternativa vibrante
+    "red": "#FFD700"#"#DC3912"           # Rojo para alertas o extremos
 }
 CRS = "EPSG:4326"
 
@@ -368,6 +368,7 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
     fig = go.Figure()
         
     if selected_borough:
+        flowmap_title = "Trips"
         zones_in_borough = gdf[gdf['borough'] == selected_borough]
         fig = show_polygons(fig, zones_in_borough, "zone")
 
@@ -394,6 +395,16 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
         ),
         margin=dict(r=0, t=0, l=0, b=0),
         plot_bgcolor="white",
+        title={
+            'text': "Trips to/from airports",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {
+                'family': 'Gotham',
+                'size': 22,
+                'color': COLORS['background']
+            }
+        },
     )
     
     return fig
@@ -458,6 +469,16 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
         plot_bgcolor='white',
         xaxis=dict(tickvals=list(range(24)), ticktext=[f'{h}:00' for h in range(24)]),
         yaxis=dict(showgrid=True, gridcolor='lightgray'),
+        title={
+            'text': "Number of taxi trips per airport",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {
+                'family': 'Gotham',
+                'size': 22,
+                'color': COLORS['background']
+            }
+        },
         legend=dict(
             orientation="v",          # Horizontal
             yanchor="bottom",
@@ -588,179 +609,93 @@ def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
 
     # Konfiguracija layout-a
     heatmap_fig.update_layout(
-        uirevision=None,
-        mapbox={
+    uirevision=None,
+    mapbox={
         "accesstoken": "pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg",
         "style": "light",
         "center": {"lat": 40.7259855, "lon": -74.0346485},
         "zoom": 8.9
-        },
-        title_x=0.5,
-        margin={"r":0,"t":40,"l":0,"b":0},
-        coloraxis_colorbar={
-            'title': 'Iznos ($)',
-            'thickness': 15,
-            'len': 0.5
+    },
+    title={
+        'text': heatmap_tittle,
+        'x': 0.5,
+        'xanchor': 'center',
+        'font': {
+            'family': 'Gotham',
+            'size': 22,
+            'color': COLORS['background']
         }
-    )
+    },
+    margin={"r": 0, "t": 40, "l": 0, "b": 0},
+    coloraxis_colorbar={
+        'title': 'Iznos ($)',
+        'thickness': 15,
+        'len': 0.5
+    }
+)
+
     return heatmap_fig
 
 initial_index = len(available_dates) // 2  
 initial_date = available_dates[initial_index] 
 
-initial_time_range = [8.0, 12.0]
+initial_time_range = [8, 12]
 figure_initial = update_map(initial_date, initial_time_range, None, 'dropoff')
 streamgraph_figure_initial = update_streamgraph(initial_date, None, 'dropoff')
 heatmap_figure_initial = update_heatmap(initial_date, initial_time_range, None, 'dropoff')
 
 white_square_shadow_box = '0 0 10px rgba(0,0,0,0.1)'
+options_start_time = [{'label': f'{i}:00h', 'value': i} for i in range(0, 24)]
+options_final_time = [{'label': f'{i}:00h', 'value': i} for i in range(0, 24)]
+options_final_time.append({'label': '23:59h', 'value': 23})
 
 app.layout = html.Div([
 
-    # Contenedor flotante unificado
+    # Mensaje inicial flotante
     html.Div([
-
-        # Subfila 1: Logo, toggle, date picker
-        html.Div([
-            # Logo a la izquierda
-            html.Img(
-                src="/assets/Nyctlc_logo.webp",
-                style={
-                    'height': '50px',
-                    'marginRight': '20px'
-                }
-            ),
-
-            html.Div(style={'flexGrow': '0.35'}),
-            
-            # Toggle antes del centro
-            html.Div([
-                html.Div(id='toggle-label', style={
-                    'marginRight': '10px',
-                    'fontFamily': 'Gotham',
-                    'color': COLORS['background'],
-                    'fontWeight': 'bold'
-                }),
-
-                daq.ToggleSwitch(
-                    id='location-toggle',
-                    value=False,
-                    vertical=False,
-                    color=COLORS['accent'],
-                    className='custom-toggle',
-                )
-            ], style={
-                'display': 'flex',
-                'alignItems': 'center',
-                'marginRight': '20px'
-            }),
-
-            # Separador flexible que empuja el DatePicker hacia la derecha del centro
-            html.Div(style={'flexGrow': '0.25'}),
-
-            # Date Picker después del centro
-            dcc.DatePickerSingle(
-                id='date-picker',
-                className='custom-date',
-                min_date_allowed=min(available_dates),
-                max_date_allowed=max(available_dates),
-                date=available_dates[initial_index],
-                first_day_of_week=1,
-                show_outside_days=False,
-                display_format='DD-MM-YYYY'
-            ),
-        ], style={
-            'position': 'sticky',
-            'top': '0',
-            'zIndex': '1000',
-            'backgroundColor': '#D0E7F9',
-            'boxShadow': white_square_shadow_box,
-            'width': '100vw',
-            'left': '0',
-            'right': '0',
-            'margin': '0 auto',
-            'display': 'flex',
-            'alignItems': 'center',
-            'padding': '10px 30px'
+        html.Button("X", id="close-instructions", n_clicks=0, style={
+            'position': 'absolute',
+            'top': '10px',
+            'right': '10px',
+            'background': 'none',
+            'border': 'none',
+            'fontSize': '20px',
+            'cursor': 'pointer',
+            'color': 'white'
         }),
-
-
-        # Subfila 2: Slider
-        html.Div([
-            dcc.RangeSlider(
-                id='time-range-slider',
-                min=0,
-                max=24,
-                step=1,
-                marks={i: f"{i}:00h" for i in range(0, 25, 4)},
-                value=initial_time_range,
-                tooltip={"placement": "bottom", "always_visible": False},
-                className='horizontal-slider'
-            )
-        ], style={
-            'padding': '10px 20px 10px 20px',
+        html.H4("How to use this dashboard", style={
+            'marginBottom': '10px',
+            'color': 'white',
+            'fontFamily': 'Gotham'
         }),
+        html.P("""- Use the toggle to switch between trips from or to the airports.
+- Pick a specific day using the date picker.
+- Filter trips by hours with the dropdowns.
 
-    ], style={
-        'position': 'sticky',
-        'top': '0',
-        'zIndex': '1000',
-        'backgroundColor': '#D0E7F9',
+Visualizations:
+- Flowmap: Shows trips between airports and boroughs. Click to drill down or back.
+- Heatmap: Average tips per zone. Click to drill down or back.
+- Streamgraph: Trips over time. Hover for details.""", style={
+            'whiteSpace': 'pre-line',
+            'lineHeight': '1.5',
+            'color': 'white',
+            'fontFamily': 'Gotham'
+        })
+    ], id='instructions-box', style={
+        'position': 'fixed',
+        'top': '300px',
+        'left': '50%',
+        'transform': 'translateX(-50%)',
+        'backgroundColor': '#153E67',
+        'padding': '20px 30px',
+        'borderRadius': '12px',
         'boxShadow': white_square_shadow_box,
-        'margin': '0',
-        'width': '100%',
+        'zIndex': '2000',
+        'width': '90%',
+        'maxWidth': '600px'
     }),
-    
-    html.Div([
-    # Contenedor de instrucciones
-        html.Div([
-            html.Button("X", id="close-instructions", n_clicks=0, style={
-                'position': 'absolute',
-                'top': '10px',
-                'right': '10px',
-                'background': 'none',
-                'border': 'none',
-                'fontSize': '20px',
-                'cursor': 'pointer'
-            }),
-            html.H4("How to use this dashboard", style={
-                'marginBottom': '10px',
-                'color': COLORS['background'],
-                'fontFamily': 'Gotham'
-            }),
-        html.P("""
-        - Use the toggle to switch between trips from or to the airports.
-        - Pick a specific day using the date picker.
-        - Filter trips by hours with the slider.
 
-        Visualizations:
-
-        - Flowmap: Shows trips between airports and boroughs. Click to drill down or back.
-        - Heatmap: Average tips per zone. Click to drill down or back.
-        - Streamgraph: Trips over time. Hover for details.
-        """, style={
-                    'whiteSpace': 'pre-line',
-                    'lineHeight': '1.5',
-                    'color': '#153E67',
-                    'fontFamily': 'Gotham'
-                })
-            ], id='instructions-box', style={
-                'position': 'fixed',
-                'top': '300px',
-                'left': '50%',
-                'right': '50%',
-                'transform': 'translateX(-50%)',
-                'backgroundColor': 'white',
-                'padding': '20px 30px',
-                'borderRadius': '12px',
-                'boxShadow': white_square_shadow_box,
-                'zIndex': '2000',
-                'width': '90%',
-                'maxWidth': '600px'
-            })
-        ]),
-    
-    # Fila 3 - Título
+    # Fila 1 - Título
     html.Div([
         html.H1("Taxi trips in NYC", style={
             'textAlign': 'center',
@@ -770,49 +705,171 @@ app.layout = html.Div([
         })
     ]),
 
-    # Fila 4 - Flowmap
+    # Fila 2 - Menú a la izquierda y Flowmap a la derecha
     html.Div([
-        html.H3("Trips to/from airports", style={
-            'textAlign': 'center',
-            'color': COLORS['background'],
-            'fontFamily': 'Gotham',
-            'marginBottom': '10px'
-        }),
-        dcc.Graph(id='map-graph', figure=figure_initial)
-    ], style={
-        'backgroundColor': 'white',
-        'borderRadius': '10px',
-        'padding': '20px',
-        'margin': '0 20px 20px 20px',
-        'boxShadow': white_square_shadow_box
-    }),
-
-    # Fila 5 - Heatmap + Streamgraph
-    html.Div([
+        # Columna izquierda: Menú con fondo blanco
         html.Div([
-            html.H3(heatmap_tittle, style={
+            html.Div([
+                html.Img(src="/assets/Nyctlc_logo.webp", style={
+                    'height': '100px',
+                    'marginBottom': '20px'
+                }),
+
+                html.Div([
+                    html.Div(id='toggle-label', style={
+                        'marginRight': '10px',
+                        'fontFamily': 'Gotham',
+                        'color': COLORS['background'],
+                        'fontWeight': 'bold'
+                    }),
+                    daq.ToggleSwitch(
+                        id='location-toggle',
+                        value=False,
+                        vertical=False,
+                        color=COLORS['accent'],
+                        className='custom-toggle',
+                    )
+                ], style={
+                    'display': 'flex',
+                    'alignItems': 'center',
+                    'marginBottom': '20px'
+                }),
+
+                # Etiqueta para el DatePicker
+                html.Div([
+                    html.Label("Date:", style={
+                        'color': COLORS['background'],
+                        'fontFamily': 'Gotham',
+                        'fontSize': '14px',
+                        'fontWeight': 'bold',
+                        'marginBottom': '5px'
+                    }),
+                    dcc.DatePickerSingle(
+                        id='date-picker',
+                        className='custom-date',
+                        min_date_allowed=min(available_dates),
+                        max_date_allowed=max(available_dates),
+                        date=available_dates[initial_index],
+                        first_day_of_week=1,
+                        show_outside_days=False,
+                        display_format='DD-MM-YYYY',
+                        style={'marginBottom': '20px'}
+                    )
+                ], style={
+                    'display': 'flex',
+                    'flexDirection': 'column',
+                    'alignItems': 'center'
+                }),
+
+                html.Div([
+                html.Label("Start hour:", style={
+                    'marginBottom': '5px',
+                    'color': COLORS['background'],
+                    'fontFamily': 'Gotham',
+                    'fontWeight': 'bold',
+                    'fontSize': '14px'
+                }),
+                dcc.Dropdown(
+                    id='start-time-dropdown',
+                    options = options_start_time,
+                    value=initial_time_range[0],
+                    clearable=False,
+                    style={
+                        'width': '100px',
+                        'marginBottom': '15px',
+                        'color': COLORS['background'],  # texto seleccionado
+                        'fontFamily': 'Gotham',
+                        'fontWeight': 'bold',
+                        'fontSize': '14px'
+                    }
+                ),
+                html.Label("Final hour:", style={
+                    'marginBottom': '5px',
+                    'color': COLORS['background'],
+                    'fontFamily': 'Gotham',
+                    'fontWeight': 'bold',
+                    'fontSize': '14px'
+                }),
+                dcc.Dropdown(
+                    id='end-time-dropdown',
+                    options=options_final_time,
+                    value=initial_time_range[1],
+                    clearable=False,
+                    style={
+                        'width': '100px',
+                        'color': COLORS['background'],  # texto seleccionado
+                        'fontFamily': 'Gotham',
+                        'fontWeight': 'bold',
+                        'fontSize': '14px'
+                    }
+                )
+            ], style={
+                'display': 'flex',
+                'flexDirection': 'column',
+                'alignItems': 'center'
+            })
+
+            ], style={
+                'margin': 'auto 0',  # Centrado vertical
+                'display': 'flex',
+                'flexDirection': 'column',
+                'alignItems': 'center'
+            })
+        ], style={
+            'width': '30%',
+            'marginRight': '15px',
+            'backgroundColor': 'white',
+            'borderRadius': '10px',
+            'padding': '20px',
+            'boxShadow': white_square_shadow_box,
+            'height': '100%',
+            'boxSizing': 'border-box',
+            'display': 'flex',
+            'flexDirection': 'column'
+        }),
+
+
+        # Columna derecha: Flowmap
+        html.Div([
+            html.H3("Trips to/from airports", style={
                 'textAlign': 'center',
                 'color': COLORS['background'],
                 'fontFamily': 'Gotham',
                 'marginBottom': '10px'
             }),
+            dcc.Graph(id='map-graph', figure=figure_initial, style={'height': '100%'})
+        ], style={
+            'width': '70%',
+            'backgroundColor': 'white',
+            'borderRadius': '10px',
+            'padding': '20px',
+            'boxShadow': white_square_shadow_box,
+            'boxSizing': 'border-box',
+            'display': 'flex',
+            'flexDirection': 'column',
+            'justifyContent': 'space-between'
+        })
+    ], style={
+        'display': 'flex',
+        'margin': '0 20px 15px 20px',  # <-- margen inferior vertical igualado a 15px
+        'alignItems': 'stretch',
+        'height': '55vh'
+    }),
+
+    # Fila 3 - Heatmap y Streamgraph
+    html.Div([
+        html.Div([
             dcc.Graph(id='heatmap-graph', figure=heatmap_figure_initial)
         ], style={
             'width': '50%',
             'backgroundColor': 'white',
             'borderRadius': '10px',
             'padding': '20px',
-            'marginRight': '10px',
+            'marginRight': '15px',  # <-- separación horizontal igualada a 15px
             'boxShadow': white_square_shadow_box
         }),
 
         html.Div([
-            html.H3("Number of taxi trips per airport", style={
-                'textAlign': 'center',
-                'color': COLORS['background'],
-                'fontFamily': 'Gotham',
-                'marginBottom': '10px'
-            }),
             dcc.Graph(id='stream-graph', figure=streamgraph_figure_initial)
         ], style={
             'width': '50%',
@@ -821,12 +878,17 @@ app.layout = html.Div([
             'padding': '20px',
             'boxShadow': white_square_shadow_box
         }),
-    ], style={'display': 'flex', 'margin': '0 20px 20px 20px'})
+    ], style={
+        'display': 'flex',
+        'margin': '0 20px 15px 20px'  # <-- margen inferior vertical igualado a 15px
+    })
 
 ], style={
     'backgroundColor': COLORS['background'],
     'paddingBottom': '40px'
 })
+
+
 
 
 @app.callback(
@@ -839,6 +901,22 @@ def hide_instructions(n_clicks):
         return {'display': 'none'}
     return dash.no_update
 
+@app.callback(
+    Output('end-time-dropdown', 'options'),
+    Output('end-time-dropdown', 'value'),
+    Input('start-time-dropdown', 'value'),
+    prevent_initial_call=True
+)
+def update_end_time_options(start_hour):
+    if start_hour is None or start_hour >= 24:
+        return [], None
+
+    end_options = [{'label': f'{i}:00h', 'value': i} for i in range(start_hour + 1, 25)]
+
+    # Por defecto, selecciona la primera opción válida
+    new_value = end_options[0]['value'] if end_options else None
+
+    return end_options, new_value
 
 @app.callback(
     Output('toggle-label', 'children'),
