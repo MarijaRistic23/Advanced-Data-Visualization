@@ -693,7 +693,7 @@ app.layout = html.Div([
 
 Visualizations:
 - Flowmap: Shows trips between airports and boroughs. Click to drill down or back.
-- Heatmap: Average tips per zone. Click to drill down or back.
+- Heatmap: It will change with the flowmap changes, showing borough or zone level selected in the flowmap.
 - Streamgraph: Trips over time. Hover for details.""", style={
             'whiteSpace': 'pre-line',
             'lineHeight': '1.5',
@@ -943,43 +943,46 @@ def update_toggle_label(toggle_value):
     return "From airport" if toggle_value is False else "To airport"
 
 
-@callback(
-    [Output("map-graph", "figure"), Output('time-range-slider', 'value'),
-    Output('stream-graph', 'figure'), Output('heatmap-graph', 'figure')],
-    [Input("date-picker", "date"), Input('time-range-slider', 'value'),
-    Input('map-graph', 'clickData'), Input('location-toggle', 'value' )],
+@app.callback(
+    [Output("map-graph", "figure"),
+    Output('stream-graph', 'figure'),
+    Output('heatmap-graph', 'figure')],
+    [Input("date-picker", "date"),
+    Input('start-time-dropdown', 'value'),
+    Input('end-time-dropdown', 'value'),
+    Input('map-graph', 'clickData'),
+    Input('location-toggle', 'value')],
     [State('stream-graph', 'figure')] 
 )
-def combined_callback(selected_date, time_range, click_data, toggle_value, curr_stream_figure):
-    start, end = time_range
-    if end >= 24:
-        end = 23.9833
-        time_range = [start, end]
-        
+def combined_callback(selected_date, start_hour, end_hour, click_data, toggle_value, curr_stream_figure):
+    if start_hour is None or end_hour is None:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    if end_hour >= 24:
+        end_hour = 23.9833
+
     ctx = dash.callback_context
     triggered = ctx.triggered[0]['prop_id']
-    print(f"okinuo se dogadjaj {triggered}")
-    if toggle_value == False:
-        toggle_value = 'dropoff'
-    else:
-        toggle_value = 'pickup'
-    
+    print(f"Trigger recibido: {triggered}")
+
+    toggle_value = 'dropoff' if toggle_value is False else 'pickup'
+
     selected_borough = None
     if click_data and 'points' in click_data:
-        print("clickData:", click_data)  # Debug
+        print("clickData:", click_data)
         for point in click_data['points']:
-            borough = point.get('text')  # bezbedno čitanje teksta
-            if borough:
-                if borough in gdf_borough['borough'].values:
-                    selected_borough = borough
-                    print("clicked okrug:", selected_borough)
-            else:
-                print("Nisam nasao customdata")
-    
+            borough = point.get('text')
+            if borough and borough in gdf_borough['borough'].values:
+                selected_borough = borough
+                print("Clicked borough:", selected_borough)
+
+    time_range = [start_hour, end_hour]
+
     fig = update_map(selected_date, time_range, selected_borough, toggle_value)
     heatmap_fig = update_heatmap(selected_date, time_range, selected_borough, toggle_value)
     streamgraph_fig = update_streamgraph(selected_date, selected_borough, toggle_value)
-    return fig, time_range if end >= 24 else dash.no_update, streamgraph_fig, heatmap_fig
+
+    return fig, streamgraph_fig, heatmap_fig
 
 
 if __name__ == "__main__":
