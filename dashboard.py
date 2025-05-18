@@ -54,7 +54,6 @@ df_borough_centroid["geom"] = df_borough_centroid["geom"].apply(wkt.loads)
 gdf_borough = gpd.GeoDataFrame(df_borough_centroid, geometry="geom", crs=CRS)
 gdf_borough["longitude"] = gdf_borough["centroid"].apply(lambda p: p.x)
 gdf_borough["latitude"] = gdf_borough["centroid"].apply(lambda p: p.y)
-gdf_borough.head()
 
 borough_centroids = {row['borough']: (row['latitude'], row['longitude']) 
                     for _, row in gdf_borough.iterrows()}
@@ -81,13 +80,17 @@ streamgraph_title = None
 
 def fetch_airport(date, start_time, end_time, airport, selected_borough, toggle_value):
     where_condition = ''
+    select_condition = ''
     if toggle_value == 'dropoff':
         where_condition = f"dz.zone = '{airport}' AND pz.borough = '{selected_borough}'"
+        select_condition = 'pz.zone'
     else:
         where_condition = f"pz.zone = '{airport}' AND dz.borough = '{selected_borough}'"
+        select_condition = 'dz.zone'
         
     query = f"""
     SELECT 
+        {select_condition} as zone,
         ST_AsText(ST_Centroid(pz.geom)) as centroid_pickup, 
         ST_AsText(ST_Centroid(dz.geom)) as centroid_dropoff,
         COUNT(*) AS trip_count
@@ -96,14 +99,14 @@ def fetch_airport(date, start_time, end_time, airport, selected_borough, toggle_
     JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
     WHERE {where_condition}
     AND t.tpep_pickup_datetime between '{date} {start_time}' and '{date} {end_time}'
-    GROUP BY pz.geom, dz.geom
+    GROUP BY pz.geom, dz.geom, {select_condition}
     limit 50;
     """
     df_taxi = pd.read_sql(query, engine)
     df_taxi["centroid_pickup"] = df_taxi["centroid_pickup"].apply(wkt.loads)
     df_taxi["centroid_dropoff"] = df_taxi["centroid_dropoff"].apply(wkt.loads)
     
-    gdf_airport = gpd.GeoDataFrame(df_taxi, geometry="centroid_pickup", crs=CRS) 
+    gdf_airport = gpd.GeoDataFrame(df_taxi, geometry="centroid_pickup", crs="EPSG:4326")
     
     gdf_airport["pickup_longitude"] = gdf_airport["centroid_pickup"].x
     gdf_airport["pickup_latitude"] = gdf_airport["centroid_pickup"].y
@@ -146,7 +149,7 @@ def fetch_airport_borough(date, start_time, end_time, airport, toggle_value):
     
     return gdf_borough_airport
 
-def generate_large_arc(start, end, num_points=30, arc_height_factor=0.7):
+def generate_large_arc(start, end, num_points=30, arc_height_factor=0.7, peak_position=0.5):
     lat1, lon1 = start
     lat2, lon2 = end
     
@@ -155,14 +158,21 @@ def generate_large_arc(start, end, num_points=30, arc_height_factor=0.7):
     for i in np.linspace(0, 1, num_points):
         # Pravimo interpoliranu tačku između start i end
         interpolated_lat = lat1 + i * (lat2 - lat1)
-        interpolated_lon = lon1 + i * (lon2 - lon1)
-        
-        # Podižemo tačku "iznad" kako bi luk bio izraženiji
-        height_adjustment = np.sin(i * np.pi) * arc_height_factor * abs(lat1 - lat2)
-        interpolated_lat += height_adjustment  
+        interpolated_lon = lon1 + i * (lon2 - lon1)  
 
+        if i <= peak_position:
+            x = i / peak_position  # Normalizujemo na [0,1] za prvu polovinu
+            height = np.sin(x * np.pi/2)  # Raste do pika
+        else:
+            x = (i - peak_position) / (1 - peak_position)  # Normalizujemo za drugu polovinu
+            height = np.cos(x * np.pi/2)  # Opada od pika
+        
+        interpolated_lat += height * arc_height_factor * abs(lat2 - lat1)
+        
         arc_lats.append(interpolated_lat)
         arc_lons.append(interpolated_lon)
+
+       # widths.append(10 * (1 - i) + 1)  # Linearno smanjenje od 10 do 1
 
     return arc_lats, arc_lons
 
@@ -208,6 +218,24 @@ if last_idx not in marks:
         'style': {'color': 'red'}  # Opciono: istakni drugom bojom
     }
     
+def plot_airports(fig, gdf_airport):
+    fig.add_trace(go.Scattermapbox(
+        lon=gdf_airport["longitude"],
+        lat=gdf_airport["latitude"],
+        hovertext=gdf_airport["zone"],  # Tekst za hover (može biti lista/Series)
+        hoverinfo='text',  # Prikazuje samo hovertext
+        mode='text',
+        text = 'X',
+        textfont=dict(
+            size=20,  # Povećajte veličinu fonta
+            color='black',
+            weight='bold',
+        ),
+        textposition="middle center",
+        showlegend=False
+    ))
+    return fig
+    
 def plot_places(fig, gdf_airport, color):
     fig.add_trace(go.Scattermapbox(
         lon=gdf_airport["pickup_longitude"],
@@ -225,62 +253,62 @@ def get_arrow_angle(lon1, lat1, lon2, lat2):
     dy = lat2 - lat1
     return math.degrees(math.atan2(dy, dx))
 
-def plot_lines(fig, gdf_airport, color):
+def plot_lines(fig, gdf_airport, color, toggle_value, airport, arc_height_factor):
     for i in range(len(gdf_airport)):
         start_point = (gdf_airport['pickup_latitude'][i], gdf_airport['pickup_longitude'][i])
-        end_point = (gdf_airport['dropoff_latitude'][i], gdf_airport['dropoff_longitude'][i]) 
-        arc_lats, arc_lons = generate_large_arc(start_point, end_point, arc_height_factor= 0.5)
+        end_point = (gdf_airport['dropoff_latitude'][i], gdf_airport['dropoff_longitude'][i])
+        
+        if toggle_value == 'dropoff':
+            arc_lats, arc_lons = generate_large_arc(start_point, end_point, num_points=8, arc_height_factor= arc_height_factor, peak_position=0.8)
+            text_value = f' {gdf_airport['zone'][i]} -> {airport}: {gdf_airport['trip_count'][i]}'
+            
+        else:
+            arc_lats, arc_lons = generate_large_arc(start_point,end_point,  num_points=8, arc_height_factor=arc_height_factor, peak_position=0.5)
+            text_value = f' {gdf_airport['zone'][i]} <- {airport}: {gdf_airport['trip_count'][i]}'
+
+        max_opacity = float(gdf_airport['trip_count'].max())
+        
         fig.add_trace(
             go.Scattermapbox(
-                lon = arc_lons,
-                lat = arc_lats,
-                mode = 'lines',
-                line = dict(width = 1, color = color),
-                opacity = float(gdf_airport['trip_count'][i]) / float(gdf_airport['trip_count'].max()),
-                showlegend=False
+                    lon = arc_lons,
+                    lat = arc_lats,
+                    mode = 'lines',
+                    line = dict(width = 1, color = color),
+                    opacity = float(gdf_airport['trip_count'][i]) / max_opacity,
+                    text = text_value,
+                    hoverinfo='text',
+                    showlegend=False
             )
-        )
-        mid_idx = len(arc_lons) // 2  # Indeks srednje tačke
-        fig.add_trace(
-            go.Scattermapbox(
-                lon=[arc_lons[mid_idx]],
-                lat=[arc_lats[mid_idx]],
-                mode='markers',
-                marker=dict(
-                    size=5,
-                    color=color,
-                    symbol=f"image://data:image/svg+xml;base64,{encoded_image}",  # Strelica kao marker
-                    angle=get_arrow_angle(arc_lons[mid_idx-1], arc_lats[mid_idx-1], 
-                                    arc_lons[mid_idx+1], arc_lats[mid_idx+1]) # Funkcija za izračun ugla
-                ),
-                showlegend=False
-            )
-        )
-        
-        
+        )        
     return fig
 
-def plot_lines_borough(fig, gdf_airport_borough , color, toggle_value):
+def plot_lines_borough(fig, gdf_airport_borough , color, toggle_value, airport):
     global borough_centroids, gdf_airport_centroid
-
+    
     for i, row in gdf_airport_borough.iterrows():
         borough_name = row['borough']
         centroid = gdf_borough[gdf_borough['borough'] == borough_name]
-        start_point = (centroid.iloc[0]['latitude'], centroid.iloc[0]['longitude'])
-        end_point = (gdf_airport_borough['latitude'][i], gdf_airport_borough['longitude'][i]) 
-        arc_lats, arc_lons = generate_large_arc(start_point, end_point)
+        if toggle_value == "dropoff":
+            start_point = (centroid.iloc[0]['latitude'], centroid.iloc[0]['longitude'])
+            end_point = (gdf_airport_borough['latitude'][i], gdf_airport_borough['longitude'][i]) 
+            arc_lats, arc_lons = generate_large_arc(start_point, end_point)
+            text_value = f' {gdf_airport_borough['borough'][i]} -> {airport}: {gdf_airport_borough['trip_count'][i]}'
+        else:
+            end_point = (centroid.iloc[0]['latitude'], centroid.iloc[0]['longitude'])
+            start_point = (gdf_airport_borough['latitude'][i], gdf_airport_borough['longitude'][i]) 
+            arc_lats, arc_lons = generate_large_arc(start_point, end_point)
+            text_value = f'{gdf_airport_borough['borough'][i]} <- {airport}: {gdf_airport_borough['trip_count'][i]}'
+        
         for j in range(len(arc_lons)-1):
-            if toggle_value == "dropoff":
-                width = max(0.5, 7 * (j / (len(arc_lons)-1))) #linearno opada
-            else:
-                width = max(0.5, 9*(1 - j/10))
+            width = max(0.5, 7 * (j / (len(arc_lons)-1)))
             fig.add_trace(
                 go.Scattermapbox(
                     lon=[arc_lons[j], arc_lons[j+1]],
                     lat=[arc_lats[j], arc_lats[j+1]],
                     mode='lines',
                     line=dict(width=width, color=color),  # Width decreases
-                    hoverinfo='none',
+                    text = text_value,
+                    hoverinfo='text',
                     showlegend=False
                 )
             )
@@ -311,12 +339,13 @@ def show_polygons(fig, gdf_polygons, name ):
                 fig.add_trace(go.Scattermapbox(
                     lat=[centroid.y],
                     lon=[centroid.x],
-                    mode="markers",
+                    mode="markers+text",
                     marker=dict(size=10, color="red", opacity=0.5),  # nevidljiv marker koji prima klik
                     text=text_values,
+                    textposition="top center",
                     name = row[name],
                     customdata=[[row[name]]],
-                    hoverinfo="name",
+                    hoverinfo="none",
                     showlegend=False
                 ))
         elif geom.geom_type == "Polygon":
@@ -326,7 +355,7 @@ def show_polygons(fig, gdf_polygons, name ):
                 mode="lines",
                 lon=list(lon),
                 lat=list(lat),
-                line=dict(width=0.8, color="black"),
+                line=dict(width=0.8,  color="black"),
                 opacity=0.5,
                 name=row[name],
                 text=text_values,
@@ -340,12 +369,13 @@ def show_polygons(fig, gdf_polygons, name ):
                 fig.add_trace(go.Scattermapbox(
                         lat=[centroid.y],
                         lon=[centroid.x],
-                        mode="markers",
+                        mode="markers+text",
                         marker=dict(size=10, color="red", opacity=0.5),  # nevidljiv marker koji prima klik
                         text=text_values,
+                        textposition="middle left",
                         name = row[name],
                         customdata=[[row[name]]],
-                        hoverinfo="name",
+                        hoverinfo="none",
                         showlegend=False
                     ))
         else:
@@ -363,26 +393,28 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
     print(start_time, end_time)
 
     airports = ['JFK Airport', 'LaGuardia Airport','Newark Airport']
+    arc_height_factor = [0.5, 0.7, 0.9]
     color_list = [COLORS["red"], COLORS["purple"], COLORS["blue"]]
+    flowmap_title = "Trips from/to airports"
     
     fig = go.Figure()
-        
+    
     if selected_borough:
-        flowmap_title = "Trips"
         zones_in_borough = gdf[gdf['borough'] == selected_borough]
         fig = show_polygons(fig, zones_in_borough, "zone")
-
+        fig = plot_airports(fig, gdf_airport_centroid)
         for i, airport in enumerate(airports):
             gdf_airport_zone = fetch_airport(selected_date, start_time, end_time, airport, selected_borough, toggle_value)
             fig = plot_places(fig, gdf_airport_zone, color_list[i])
-            fig = plot_lines(fig, gdf_airport_zone, color_list[i])
-        
+            fig = plot_lines(fig, gdf_airport_zone, color_list[i], toggle_value, airport,arc_height_factor[i])
     else:
         fig = show_polygons(fig, gdf_borough, "borough")
+        fig = plot_airports(fig, gdf_airport_centroid)
         for i, airport in enumerate(airports):
             print(f"Iscrava se za aerodrom {airport}")
             gdf_airport_borough = fetch_airport_borough(selected_date, start_time, end_time, airport, toggle_value)
-            fig = plot_lines_borough(fig, gdf_airport_borough , color_list[i], toggle_value)
+            fig = plot_lines_borough(fig, gdf_airport_borough , color_list[i], toggle_value, airport)
+        
 
     fig.update_layout(
         uirevision="constant",
@@ -396,7 +428,7 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
         margin=dict(r=0, t=0, l=0, b=0),
         plot_bgcolor="white",
         title={
-            'text': "Trips to/from airports",
+            'text': flowmap_title,
             'x': 0.5,
             'xanchor': 'center',
             'font': {
@@ -524,12 +556,12 @@ def get_tip_amount(selected_date, time_range, selected_borough, toggle_value):
     end_time = time(hour=int(end_hour), minute=int((end_hour % 1) * 60))
     
     where_cond = 'dz.zone'
-    cond = ''
-    if toggle_value == 'dropoff':
-        cond = 'pz'
-        
-    else:
-        cond = 'dz'
+    cond = 'pz'
+    #if toggle_value == 'dropoff':
+    #    cond = 'pz'
+    #    
+    #else:
+    #    cond = 'dz'
 
     query = f'''
     SELECT 
@@ -550,7 +582,7 @@ def get_tip_amount(selected_date, time_range, selected_borough, toggle_value):
 
 def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
     if selected_borough:
-        query = f'''SELECT zone, borough, ST_AsText(geom) AS geom
+        query = f'''SELECT zone, borough, ST_AsText(geom) AS geom 
         FROM taxi_zones
         WHERE borough = '{selected_borough}';
         '''
@@ -558,24 +590,23 @@ def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
         df_zone["geom"] = df_zone["geom"].apply(wkt.loads)
         df_tip_amount = get_tip_amount(selected_date, time_range, selected_borough, toggle_value)
         df_merge = df_zone.merge(df_tip_amount, on=['zone'], how='left', validate=None)
-        gdf_tip_amount =  gpd.GeoDataFrame(df_merge, geometry="geom", crs=CRS)
+        gdf_tip_amount =  gpd.GeoDataFrame(df_merge, geometry="geom", crs="EPSG:4326")
 
         gdf_tip_amount['hover_text'] = gdf_tip_amount.apply(
             lambda x: f"{x['zone']}<br>Average tip: {x['average_tip']:.2f}" 
                 if pd.notna(x['average_tip']) else f"{x['zone']}<br>No drives",
                 axis=1
         )
-
         heatmap_tittle = f"Average tip amount by zone in {selected_borough}"
-
+        
     else:
         global df_boroug_centroid
         df_tip_amount = get_tip_amount_borough(selected_date, time_range, toggle_value)
         df_merge = df_borough_centroid.merge(df_tip_amount, on='borough', how='left')
-        gdf_tip_amount =  gpd.GeoDataFrame(df_merge, geometry="geom", crs=CRS)
+        gdf_tip_amount =  gpd.GeoDataFrame(df_merge, geometry="geom", crs="EPSG:4326")
 
         gdf_tip_amount['hover_text'] = gdf_tip_amount.apply(
-            lambda x: f"{x['borough']}<br>Average tip: {x['average_tip']:.2f}"
+            lambda x: f"{x['borough']}<br>Average tip: {x['average_tip']:.2f}" 
                 if pd.notna(x['average_tip']) else f"{x['borough']}<br>No drives",
                 axis=1
         )
@@ -609,31 +640,30 @@ def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
 
     # Konfiguracija layout-a
     heatmap_fig.update_layout(
-    uirevision=None,
-    mapbox={
-        "accesstoken": "pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg",
-        "style": "light",
-        "center": {"lat": 40.7259855, "lon": -74.0346485},
-        "zoom": 8.9
-    },
-    title={
-        'text': heatmap_tittle,
-        'x': 0.5,
-        'xanchor': 'center',
-        'font': {
-            'family': 'Gotham',
-            'size': 22,
-            'color': COLORS['background']
+        uirevision=None,
+        mapbox={
+            "accesstoken": "pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg",
+            "style": "light",
+            "center": {"lat": 40.7259855, "lon": -74.0346485},
+            "zoom": 8.9
+        },
+        title={
+            'text': heatmap_tittle,
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {
+                'family': 'Gotham',
+                'size': 22,
+                'color': COLORS['background']
+            }
+        },
+        margin={"r": 0, "t": 40, "l": 0, "b": 0},
+        coloraxis_colorbar={
+            'title': 'Iznos ($)',
+            'thickness': 15,
+            'len': 0.5
         }
-    },
-    margin={"r": 0, "t": 40, "l": 0, "b": 0},
-    coloraxis_colorbar={
-        'title': 'Iznos ($)',
-        'thickness': 15,
-        'len': 0.5
-    }
-)
-
+    )
     return heatmap_fig
 
 initial_index = len(available_dates) // 2  
@@ -831,12 +861,6 @@ Visualizations:
 
         # Columna derecha: Flowmap
         html.Div([
-            html.H3("Trips to/from airports", style={
-                'textAlign': 'center',
-                'color': COLORS['background'],
-                'fontFamily': 'Gotham',
-                'marginBottom': '10px'
-            }),
             dcc.Graph(id='map-graph', figure=figure_initial, style={'height': '100%'})
         ], style={
             'width': '70%',
@@ -889,8 +913,6 @@ Visualizations:
 })
 
 
-
-
 @app.callback(
     Output('instructions-box', 'style'),
     Input('close-instructions', 'n_clicks'),
@@ -925,62 +947,44 @@ def update_end_time_options(start_hour):
 def update_toggle_label(toggle_value):
     return "From airport" if toggle_value is False else "To airport"
 
+
 @callback(
-    [Output("map-graph", "figure"), Output('time-range-slider', 'value'), Output('stream-graph', 'figure')],
-    [Input("date-picker", "date"), Input('time-range-slider', 'value'), Input('map-graph', 'clickData'), Input('location-toggle', 'value' )],
+    [Output("map-graph", "figure"), Output('time-range-slider', 'value'),
+    Output('stream-graph', 'figure'), Output('heatmap-graph', 'figure')],
+    [Input("date-picker", "date"), Input('time-range-slider', 'value'),
+    Input('map-graph', 'clickData'), Input('location-toggle', 'value' )],
     [State('stream-graph', 'figure')] 
 )
-def normalize_time_range(time_range):
+def combined_callback(selected_date, time_range, click_data, toggle_value, curr_stream_figure):
     start, end = time_range
     if end >= 24:
         end = 23.9833
-    return start, end
-
-def get_triggered_id():
+        time_range = [start, end]
+        
     ctx = dash.callback_context
-    triggered = ctx.triggered[0]['prop_id'] if ctx.triggered else ''
+    triggered = ctx.triggered[0]['prop_id']
     print(f"okinuo se dogadjaj {triggered}")
-    return triggered
-
-def normalize_toggle_value(toggle_value):
-    return 'pickup' if toggle_value else 'dropoff'
-
-def extract_selected_borough(click_data):
-    if not click_data or 'points' not in click_data:
-        return None
-
-    print("clickData:", click_data)  # Debug
-    for point in click_data['points']:
-        borough = point.get('text')
-        if borough and borough in gdf_borough['borough'].values:
-            print("clicked okrug:", borough)
-            return borough
-        else:
-            print("Nisam nasao customdata")
-    return None
-
-def update_streamgraph_conditionally(triggered, selected_date, selected_borough, toggle_value, curr_stream_figure):
-    if (
-        triggered == 'date-picker.date'
-        or selected_borough
-        or triggered == 'location-toggle.value'
-        or (triggered == 'map-graph.clickData' and selected_borough is None)
-    ):
-        return update_streamgraph(selected_date, selected_borough, toggle_value)
-    return curr_stream_figure
-
-def combined_callback(selected_date, time_range, click_data, toggle_value, curr_stream_figure):
-    start, end = normalize_time_range(time_range)
-    triggered = get_triggered_id()
-    toggle_value = normalize_toggle_value(toggle_value)
-    selected_borough = extract_selected_borough(click_data)
-
-    fig = update_map(selected_date, [start, end], selected_borough, toggle_value)
-    streamgraph_fig = update_streamgraph_conditionally(
-        triggered, selected_date, selected_borough, toggle_value, curr_stream_figure
-    )
-
-    return fig, [start, end] if end >= 24 else dash.no_update, streamgraph_fig
+    if toggle_value == False:
+        toggle_value = 'dropoff'
+    else:
+        toggle_value = 'pickup'
+    
+    selected_borough = None
+    if click_data and 'points' in click_data:
+        print("clickData:", click_data)  # Debug
+        for point in click_data['points']:
+            borough = point.get('text')  # bezbedno čitanje teksta
+            if borough:
+                if borough in gdf_borough['borough'].values:
+                    selected_borough = borough
+                    print("clicked okrug:", selected_borough)
+            else:
+                print("Nisam nasao customdata")
+    
+    fig = update_map(selected_date, time_range, selected_borough, toggle_value)
+    heatmap_fig = update_heatmap(selected_date, time_range, selected_borough, toggle_value)
+    streamgraph_fig = update_streamgraph(selected_date, selected_borough, toggle_value)
+    return fig, time_range if end >= 24 else dash.no_update, streamgraph_fig, heatmap_fig
 
 
 if __name__ == "__main__":
