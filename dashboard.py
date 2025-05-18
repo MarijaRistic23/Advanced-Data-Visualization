@@ -397,11 +397,20 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
     color_list = [COLORS["red"], COLORS["purple"], COLORS["blue"]]
     
     fig = go.Figure()
+    flowmap_title = ""
+    
+    if toggle_value == "dropoff":
+        # to airport
+        flowmap_title += "Trips to airports"
+    else:
+        flowmap_title += "Trips from airports"        
     
     if selected_borough:
+        flowmap_title += f" to {selected_borough}"
         zones_in_borough = gdf[gdf['borough'] == selected_borough]
         fig = show_polygons(fig, zones_in_borough, "zone")
         fig = plot_airports(fig, gdf_airport_centroid)
+        
         for i, airport in enumerate(airports):
             gdf_airport_zone = fetch_airport(selected_date, start_time, end_time, airport, selected_borough, toggle_value)
             fig = plot_places(fig, gdf_airport_zone, color_list[i])
@@ -416,7 +425,7 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
         
 
     fig.update_layout(
-        uirevision="constant",
+        uirevision=None,
         mapbox=dict(
             accesstoken="pk.eyJ1IjoibWFyaWphcmlzdGljMjMiLCJhIjoiY21hZjZpeTc4MDIzZjJqcjFjcWhvMTRyNiJ9.V7dv1K-HL_i3asRs3aKmfg", 
             style="light",  #"light" "dark", "satellite", "streets"
@@ -424,23 +433,34 @@ def update_map(selected_date, time_range, selected_borough, toggle_value):
             zoom=9.2,
             bearing=-20
         ),
-        margin=dict(r=0, t=0, l=0, b=0),
+        margin=dict(t=40, b=0, l=0, r=0),
         plot_bgcolor="white",
+        title={
+            'text': flowmap_title,
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {
+                'family': 'Gotham',
+                'size': 25,
+                'color': COLORS['background']
+            }
+        },
     )
     
     return fig
 
 def get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value):
-    extra_condition = ''
-    cond = 'dz.zone'
+    ekstra_condition = ''
+    cond = ''
     if toggle_value == 'dropoff':
-        
+        cond = 'dz.zone'
         if selected_borough:
-            extra_condition = f"AND pz.borough = '{selected_borough}'"
+            ekstra_condition = f"AND pz.borough = '{selected_borough}'"
             print("desio se ekstra condition")
     else:
+        cond = 'pz.zone'
         if selected_borough:
-            extra_condition = f"AND dz.borough = '{selected_borough}'"
+            ekstra_condition = f"AND dz.borough = '{selected_borough}'"
     query = f'''
     SELECT 
         {cond} as borough,
@@ -449,11 +469,12 @@ def get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value):
     FROM taxi t
     JOIN taxi_zones pz ON ST_Contains(pz.geom, t.geom_pickup)
     JOIN taxi_zones dz ON ST_Contains(dz.geom, t.geom_dropoff)
-    WHERE {cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {extra_condition}
+    WHERE {cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {ekstra_condition}
     AND DATE(t.tpep_pickup_datetime) = '{selected_date}'
     GROUP BY {cond}, EXTRACT(HOUR FROM t.tpep_pickup_datetime)
     ORDER BY hour, borough;
     '''
+
     return pd.read_sql(query, engine)
 
 def update_streamgraph(selected_date, selected_borough, toggle_value):
@@ -469,6 +490,7 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
     stream_fig = go.Figure()
     boroughs_sorted = df_taxi_frequency_pivot.drop(columns='hour').sum().sort_values(ascending=False).index
     color_list = [COLORS["purple"], COLORS["red"], COLORS["blue"]]
+    print(f"borughs sorted: {boroughs_sorted}")
     
     for i, borough in enumerate(boroughs_sorted):
         stream_fig.add_trace(go.Scatter(
@@ -477,7 +499,7 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
             name=borough,
             mode='lines',
             stackgroup='one',  # Ključno za streamgraph!
-            line=dict(width=0.5, shape='spline', color=color_list[i]),  # Glatke krivine
+            line=dict(width=0.5, shape='spline', color = color_list[i % len(color_list)]),  # Glatke krivine
             hoverinfo='x+y+name',
             hovertemplate=f'<b>{borough}</b><br>Hour: %{{x}}<br>Num of drives: %{{y}}<extra></extra>'
         ))
@@ -488,10 +510,17 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
         hovermode='x unified',
         showlegend=True,
         plot_bgcolor='white',
-        xaxis=dict(tickvals=list(range(24)), ticktext=[f'{h}:00' for h in range(24)]),
-        yaxis=dict(showgrid=True, gridcolor='lightgray'),
+        xaxis=dict(
+            tickvals=list(range(24)),
+            ticktext=[f'{h}:00' for h in range(24)]
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='lightgray'
+        ),
+        margin=dict(t=80, b=10, l=40, r=20),  # ← más espacio arriba y abajo
         title={
-            'text': "Number of taxi trips per airport",
+            'text': f"Number of taxi trips {'to' if toggle_value == 'dropoff' else 'from'} airports{f' in {selected_borough}' if selected_borough else ''}",
             'x': 0.5,
             'xanchor': 'center',
             'font': {
@@ -501,12 +530,18 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
             }
         },
         legend=dict(
-            orientation="v",          # Horizontal
+            orientation="h",       # ← horizontal para que no se superponga
             yanchor="bottom",
-            y=1.1,                    # Por encima del gráfico
-            xanchor="center"
+            y=1.02,                # ← justo debajo del título
+            xanchor="center",
+            x=0.5,
+            font=dict(
+                family='Gotham',
+                size=12
+            )
         )
     )
+
     print("zavrseno pravljenje stream figure")
     return stream_fig
 
@@ -642,7 +677,7 @@ def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
             'xanchor': 'center',
             'font': {
                 'family': 'Gotham',
-                'size': 22,
+                'size': 25,
                 'color': COLORS['background']
             }
         },
@@ -850,12 +885,6 @@ Visualizations:
 
         # Columna derecha: Flowmap
         html.Div([
-            html.H3("Trips from/to Airports", style={
-                'fontFamily': 'Gotham',
-                'color': COLORS['background'],
-                'marginBottom': '15px',
-                'textAlign': 'center'
-            }),
             dcc.Graph(id='map-graph', figure=figure_initial, style={'height': '100%'})
         ], style={
             'width': '70%',
@@ -940,19 +969,19 @@ def update_end_time_options(start_hour):
     Input('location-toggle', 'value')
 )
 def update_toggle_label(toggle_value):
-    return "From airport" if toggle_value is False else "To airport"
+    return "To airports" if toggle_value is False else "From airports"
 
 
 @app.callback(
     [Output("map-graph", "figure"),
-    Output('stream-graph', 'figure'),
-    Output('heatmap-graph', 'figure')],
+     Output("stream-graph", "figure"),
+     Output("heatmap-graph", "figure")],
     [Input("date-picker", "date"),
-    Input('start-time-dropdown', 'value'),
-    Input('end-time-dropdown', 'value'),
-    Input('map-graph', 'clickData'),
-    Input('location-toggle', 'value')],
-    [State('stream-graph', 'figure')] 
+     Input("start-time-dropdown", "value"),
+     Input("end-time-dropdown", "value"),
+     Input("map-graph", "clickData"),
+     Input("location-toggle", "value")],
+    [State("stream-graph", "figure")]
 )
 def combined_callback(selected_date, start_hour, end_hour, click_data, toggle_value, curr_stream_figure):
     if start_hour is None or end_hour is None:
@@ -961,28 +990,38 @@ def combined_callback(selected_date, start_hour, end_hour, click_data, toggle_va
     if end_hour >= 24:
         end_hour = 23.9833
 
+    # Determina qué input activó el callback
     ctx = dash.callback_context
     triggered = ctx.triggered[0]['prop_id']
     print(f"Trigger recibido: {triggered}")
 
+    # Normaliza el valor del toggle
     toggle_value = 'dropoff' if toggle_value is False else 'pickup'
 
+    # Determina el borough si hay clickData
     selected_borough = None
     if click_data and 'points' in click_data:
-        print("clickData:", click_data)
         for point in click_data['points']:
-            borough = point.get('text')
-            if borough and borough in gdf_borough['borough'].values:
-                selected_borough = borough
+            borough = point.get('text')  # Verifica que sea el mismo atributo que usas en update_map()
+            if borough and borough.strip() in gdf_borough['borough'].values:
+                selected_borough = borough.strip()
                 print("Clicked borough:", selected_borough)
 
+    # Rango de tiempo
     time_range = [start_hour, end_hour]
 
-    fig = update_map(selected_date, time_range, selected_borough, toggle_value)
+    # Actualiza gráficos
+    map_fig = update_map(selected_date, time_range, selected_borough, toggle_value)
     heatmap_fig = update_heatmap(selected_date, time_range, selected_borough, toggle_value)
-    streamgraph_fig = update_streamgraph(selected_date, selected_borough, toggle_value)
 
-    return fig, streamgraph_fig, heatmap_fig
+    # Condición inteligente para no sobreescribir streamgraph vacío
+    if triggered in ['date-picker.date', 'location-toggle.value', 'map-graph.clickData'] or selected_borough:
+        streamgraph_fig = update_streamgraph(selected_date, selected_borough, toggle_value)
+    else:
+        streamgraph_fig = curr_stream_figure
+
+    return map_fig, streamgraph_fig, heatmap_fig
+
 
 
 if __name__ == "__main__":
