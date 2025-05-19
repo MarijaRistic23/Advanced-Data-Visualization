@@ -770,24 +770,29 @@ Visualizations:
                 }),
 
                 html.Div([
-                    html.Div(id='toggle-label', style={
-                        'marginRight': '10px',
-                        'fontFamily': 'Gotham',
-                        'color': COLORS['background'],
-                        'fontWeight': 'bold'
-                    }),
+                    html.Span(
+                        "From airport",
+                        id='from-airport-label',
+                        className='label-from active'
+                    ),
                     daq.ToggleSwitch(
-                        id='location-toggle',
-                        value=False,
-                        vertical=False,
-                        color=COLORS['accent'],
-                        className='custom-toggle',
+            id='location-toggle',
+            value=False,
+            vertical=False,
+            color=COLORS['accent'],
+            className='custom-toggle',
+                    ),
+                    html.Span(
+            "To airport",
+            id='to-airport-label',
+            className='label-to inactive'
                     )
                 ], style={
-                    'display': 'flex',
-                    'alignItems': 'center',
-                    'marginBottom': '20px'
-                }),
+                        'display': 'flex',
+                        'alignItems': 'center',
+                        'marginBottom': '20px',
+                        'gap': '10px'
+                    }),
 
                 # Etiqueta para el DatePicker
                 html.Div([
@@ -972,11 +977,15 @@ def update_end_time_options(start_hour):
     return end_options, new_value
 
 @app.callback(
-    Output('toggle-label', 'children'),
-    Input('location-toggle', 'value')
+    [Output('from-airport-label', 'className'),
+     Output('to-airport-label', 'className')],
+    [Input('location-toggle', 'value')]
 )
-def update_toggle_label(toggle_value):
-    return "To airports" if toggle_value is False else "From airports"
+def update_labels(toggle_value):
+    if toggle_value:
+        return 'label-from inactive', 'label-to active'
+    else:
+        return 'label-from active', 'label-to inactive'
 
 
 @app.callback(

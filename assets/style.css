@@ -137,4 +137,16 @@ body {
     font-size: 14px;
     color: #153E67;
 }
+.label-from, .label-to {
+    font-family: Gotham;
+    font-weight: bold;
+    transition: color 0.3s ease;
+}
 
+.label-from.active, .label-to.active {
+    color: #153E67;
+}
+
+.label-from.inactive, .label-to.inactive {
+    color: rgba(0, 0, 0, 0.3);
+}
