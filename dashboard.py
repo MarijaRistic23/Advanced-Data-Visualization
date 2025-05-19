@@ -719,17 +719,51 @@ app.layout = html.Div([
         }),
         html.H4("How to use this dashboard", style={
             'marginBottom': '10px',
-            'color': 'white',
+            'color': COLORS['accent'],
             'fontFamily': 'Gotham'
         }),
-        html.P("""- Use the toggle to switch between trips from or to the airports.
-- Pick a specific day using the date picker.
-- Filter trips by hours with the dropdowns.
-
-Visualizations:
-- Flowmap: Shows trips between airports and boroughs. Click to drill down or back.
-- Heatmap: It will change with the flowmap changes, showing borough or zone level selected in the flowmap.
-- Streamgraph: Trips over time. Hover for details.""", style={
+        html.P(["- Use the toggle to switch between trips ", 
+    html.Span("from", className="highlight-word"),  # Ista klasa
+    " or ", 
+    html.Span("to", className="highlight-word"),    # Ista klasa
+    " the airports.",
+    html.Br(),
+    "- Pick a specific ", html.Span("day", className="highlight-word") , " using the date picker.",
+    html.Br(),
+    "- Filter trips by ", html.Span("hours", className="highlight-word"), " with the dropdowns.",
+html.Br(),
+html.Br(),
+"Visualizations:",
+html.Br(),
+"- Flowmap: Shows trips between airports and boroughs.",
+html.Br(),
+html.Span("    ", style={"margin-left": "40px"}),
+"Click a borough's border to switch to ", html.Span("zone view.", className="highlight-word"),
+html.Br(),
+html.Span("    ", style={"margin-left": "40px"}),
+"Click any zone's border to go back to ", html.Span("borough view.", className="highlight-word"),
+html.Br(),
+"- Heatmap: shows the average tip amount. ",
+html.Br(),
+html.Span(
+        "The borough/zone-level view corresponds to your current selection in the flow map above.",
+        style={"fontWeight": "normal !important",
+        "margin-left": "40px",
+        "fontSize": "0.75em"}  # Forces normal (non-bold) weight
+    ), 
+html.Br(),
+"- Streamgraph: the number of trips from/to each airport per day. ",
+html.Br(),
+html.Span(
+        "The borough/zone-level view corresponds to your current selection in the flow map above.",
+        style={"fontWeight": "normal !important",
+        "margin-left": "40px",
+        "fontSize": "0.75em"}  # Forces normal (non-bold) weight
+    ),
+html.Br(),
+html.Br(),
+html.Span("Hover every visualization for more details!", className="highlight-word")
+], style={
             'whiteSpace': 'pre-line',
             'lineHeight': '1.5',
             'color': 'white',
@@ -737,7 +771,7 @@ Visualizations:
         })
     ], id='instructions-box', style={
         'position': 'fixed',
-        'top': '300px',
+        'top': '200px',
         'left': '50%',
         'transform': 'translateX(-50%)',
         'backgroundColor': '#153E67',

@@ -150,3 +150,7 @@ body {
 .label-from.inactive, .label-to.inactive {
     color: rgba(0, 0, 0, 0.3);
 }
+.highlight-word {
+    color: #FFD700;  
+    font-weight: bold;
+}
