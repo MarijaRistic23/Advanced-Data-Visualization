@@ -816,52 +816,66 @@ Visualizations:
                 }),
 
                 html.Div([
-                html.Label("Start hour:", style={
-                    'marginBottom': '5px',
-                    'color': COLORS['background'],
-                    'fontFamily': 'Gotham',
-                    'fontWeight': 'bold',
-                    'fontSize': '14px'
-                }),
-                dcc.Dropdown(
-                    id='start-time-dropdown',
-                    options = options_start_time,
-                    value=initial_time_range[0],
-                    clearable=False,
-                    style={
-                        'width': '100px',
-                        'marginBottom': '15px',
-                        'color': COLORS['background'],  # texto seleccionado
-                        'fontFamily': 'Gotham',
-                        'fontWeight': 'bold',
-                        'fontSize': '14px'
-                    }
-                ),
-                html.Label("Final hour:", style={
-                    'marginBottom': '5px',
-                    'color': COLORS['background'],
-                    'fontFamily': 'Gotham',
-                    'fontWeight': 'bold',
-                    'fontSize': '14px'
-                }),
-                dcc.Dropdown(
-                    id='end-time-dropdown',
-                    options=options_final_time,
-                    value=initial_time_range[1],
-                    clearable=False,
-                    style={
-                        'width': '100px',
-                        'color': COLORS['background'],  # texto seleccionado
-                        'fontFamily': 'Gotham',
-                        'fontWeight': 'bold',
-                        'fontSize': '14px'
-                    }
-                )
-            ], style={
-                'display': 'flex',
-                'flexDirection': 'column',
-                'alignItems': 'center'
-            })
+                    html.Div([
+                        html.Label("Start hour:", style={
+                            'marginBottom': '5px',
+                            'color': COLORS['background'],
+                            'fontFamily': 'Gotham',
+                            'fontWeight': 'bold',
+                            'fontSize': '14px'
+                        }),
+                        dcc.Dropdown(
+                            id='start-time-dropdown',
+                            options=options_start_time,
+                            value=initial_time_range[0],
+                            clearable=False,
+                            style={
+                                'width': '100%',
+                                'marginBottom': '15px',
+                                'color': COLORS['background'],
+                                'fontFamily': 'Gotham',
+                                'fontWeight': 'bold',
+                                'fontSize': '14px'
+                            }
+                        ),
+                    ], style={'flex': '1', 'marginRight': '10px'}),
+
+                    html.Div([
+                        html.Label("Final hour:", style={
+                            'marginBottom': '5px',
+                            'color': COLORS['background'],
+                            'fontFamily': 'Gotham',
+                            'fontWeight': 'bold',
+                            'fontSize': '14px'
+                        }),
+                        dcc.Dropdown(
+                            id='end-time-dropdown',
+                            options=options_final_time,
+                            value=initial_time_range[1],
+                            clearable=False,
+                            style={
+                                'width': '100%',
+                                'color': COLORS['background'],
+                                'fontFamily': 'Gotham',
+                                'fontWeight': 'bold',
+                                'fontSize': '14px'
+                            }
+                        ),
+                    ], style={'flex': '1'})
+                ], style={
+                    'display': 'flex',
+                    'flexDirection': 'row',
+                    'alignItems': 'flex-start',
+                    'justifyContent': 'flex-start',
+                    'width': '100%',
+                    'maxWidth': '250px'
+                })
+
+            #], style={
+            #    'display': 'flex',
+            #    'flexDirection': 'column',
+            #    'alignItems': 'center'
+            #})
 
             ], style={
                 'margin': 'auto 0',  # Centrado vertical
