@@ -870,13 +870,6 @@ Visualizations:
                     'width': '100%',
                     'maxWidth': '250px'
                 })
-
-            #], style={
-            #    'display': 'flex',
-            #    'flexDirection': 'column',
-            #    'alignItems': 'center'
-            #})
-
             ], style={
                 'margin': 'auto 0',  # Centrado vertical
                 'display': 'flex',
@@ -988,13 +981,13 @@ def update_toggle_label(toggle_value):
 
 @app.callback(
     [Output("map-graph", "figure"),
-     Output("stream-graph", "figure"),
-     Output("heatmap-graph", "figure")],
+    Output("stream-graph", "figure"),
+    Output("heatmap-graph", "figure")],
     [Input("date-picker", "date"),
-     Input("start-time-dropdown", "value"),
-     Input("end-time-dropdown", "value"),
-     Input("map-graph", "clickData"),
-     Input("location-toggle", "value")],
+    Input("start-time-dropdown", "value"),
+    Input("end-time-dropdown", "value"),
+    Input("map-graph", "clickData"),
+    Input("location-toggle", "value")],
     [State("stream-graph", "figure")]
 )
 def combined_callback(selected_date, start_hour, end_hour, click_data, toggle_value, curr_stream_figure):
