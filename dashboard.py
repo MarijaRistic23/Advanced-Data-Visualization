@@ -805,9 +805,9 @@ html.Span("Hover every visualization for more details!", className="highlight-wo
 
                 html.Div([
                     html.Span(
-                        "From airport",
-                        id='from-airport-label',
-                        className='label-from active'
+                        "To airport",
+                        id='to-airport-label',
+                        className='label-to inactive'
                     ),
                     daq.ToggleSwitch(
             id='location-toggle',
@@ -817,9 +817,9 @@ html.Span("Hover every visualization for more details!", className="highlight-wo
             className='custom-toggle',
                     ),
                     html.Span(
-            "To airport",
-            id='to-airport-label',
-            className='label-to inactive'
+                        "From airport",
+                        id='from-airport-label',
+                        className='label-from active'
                     )
                 ], style={
                         'display': 'flex',
@@ -1016,7 +1016,7 @@ def update_end_time_options(start_hour):
     [Input('location-toggle', 'value')]
 )
 def update_labels(toggle_value):
-    if toggle_value:
+    if toggle_value == False:
         return 'label-from inactive', 'label-to active'
     else:
         return 'label-from active', 'label-to inactive'
