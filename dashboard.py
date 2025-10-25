@@ -25,12 +25,12 @@ username = config.get('credentials', 'username')
 password = config.get('credentials', 'password')
 
 COLORS = {
-    "background": '#153E67', #"#F5F5F5",   # Gris claro y suave
-    "accent": "#FFD700",       # Amarillo taxi para títulos y detalles
-    "text": "#222222",         # Texto principal
-    "blue": "#153E67",         # Azul para gráficos
-    "purple": "#28a745",       # Alternativa vibrante
-    "red": "#FFD700"#"#DC3912"           # Rojo para alertas o extremos
+    "background": '#153E67',    # BLUE
+    "accent": "#FFD700",        # Yellow
+    "text": "#222222",          # NOT USED
+    "blue": "#153E67",          # BLUE
+    "purple": "#28a745",        # GREEN
+    "red": "#FFD700"            # YELLOW
 }
 CRS = "EPSG:4326"
 
@@ -45,18 +45,18 @@ query = '''SELECT
 	ST_AsText(ST_Centroid(ST_Union(geom))) AS centroid,
     ST_AsText(ST_Union(geom)) AS geom
 FROM taxi_zones
-GROUP BY borough'''
+GROUP BY borough'''     # calcula la figura del area del borough entero a partir de las zonas
 
 df_borough_centroid = pd.read_sql(query, engine)
-df_borough_centroid["centroid"] = df_borough_centroid["centroid"].apply(wkt.loads)
-df_borough_centroid["geom"] = df_borough_centroid["geom"].apply(wkt.loads)
+df_borough_centroid["centroid"] = df_borough_centroid["centroid"].apply(wkt.loads)  # transforma las coordeandas de string a un objeto geometrico de la librería shapely
+df_borough_centroid["geom"] = df_borough_centroid["geom"].apply(wkt.loads)  # exactamente lo mismo pero con geom
 
-gdf_borough = gpd.GeoDataFrame(df_borough_centroid, geometry="geom", crs=CRS)
-gdf_borough["longitude"] = gdf_borough["centroid"].apply(lambda p: p.x)
-gdf_borough["latitude"] = gdf_borough["centroid"].apply(lambda p: p.y)
+gdf_borough = gpd.GeoDataFrame(df_borough_centroid, geometry="geom", crs=CRS)   # transforma geom en un geodataframe con el sistema CRS
+gdf_borough["longitude"] = gdf_borough["centroid"].apply(lambda p: p.x) # extrae la coordeanda x de centroid
+gdf_borough["latitude"] = gdf_borough["centroid"].apply(lambda p: p.y)  # lo mismo pero con la y
 
 borough_centroids = {row['borough']: (row['latitude'], row['longitude']) 
-                    for _, row in gdf_borough.iterrows()}
+                    for _, row in gdf_borough.iterrows()}   # crea un diccionario que mapea cada borough con las coordenadas del centroide
 
 query = '''SELECT 
     zone,
@@ -66,13 +66,13 @@ FROM
 WHERE 
     zone IN ('JFK Airport', 
             'LaGuardia Airport', 
-            'Newark Airport')'''
+            'Newark Airport')''' # calcula el centroide del aeropuerto
 df_airport_centroid = pd.read_sql(query, engine)
-df_airport_centroid["centroid"] = df_airport_centroid["centroid"].apply(wkt.loads)
+df_airport_centroid["centroid"] = df_airport_centroid["centroid"].apply(wkt.loads)  # lo transforma a KWT
 
 gdf_airport_centroid = gpd.GeoDataFrame(df_airport_centroid, geometry="centroid", crs=CRS) 
-gdf_airport_centroid["longitude"] = gdf_airport_centroid["centroid"].x
-gdf_airport_centroid["latitude"] = gdf_airport_centroid["centroid"].y
+gdf_airport_centroid["longitude"] = gdf_airport_centroid["centroid"].x  # extrae la x del centroide del aeropuerto
+gdf_airport_centroid["latitude"] = gdf_airport_centroid["centroid"].y   # extrae la y del centroide del aeropuerto
 
 flowmap_title = None
 heatmap_tittle = None
@@ -101,17 +101,17 @@ def fetch_airport(date, start_time, end_time, airport, selected_borough, toggle_
     AND t.tpep_pickup_datetime between '{date} {start_time}' and '{date} {end_time}'
     GROUP BY pz.geom, dz.geom, {select_condition}
     limit 50;
-    """
+    """     # Consulta los viajes en taxi entre un aeropuerto y un barrio, ya sean de ida o vuelta, filtrados por fecha y hora, y agrupados por zona y centroide para su representación visual en mapas.
     df_taxi = pd.read_sql(query, engine)
-    df_taxi["centroid_pickup"] = df_taxi["centroid_pickup"].apply(wkt.loads)
-    df_taxi["centroid_dropoff"] = df_taxi["centroid_dropoff"].apply(wkt.loads)
+    df_taxi["centroid_pickup"] = df_taxi["centroid_pickup"].apply(wkt.loads)    # pasa el centroide del pickup a WKT
+    df_taxi["centroid_dropoff"] = df_taxi["centroid_dropoff"].apply(wkt.loads)  # pasa el centroide del drop off a KWT
     
     gdf_airport = gpd.GeoDataFrame(df_taxi, geometry="centroid_pickup", crs="EPSG:4326")
     
-    gdf_airport["pickup_longitude"] = gdf_airport["centroid_pickup"].x
+    gdf_airport["pickup_longitude"] = gdf_airport["centroid_pickup"].x  # extrae la x y la y
     gdf_airport["pickup_latitude"] = gdf_airport["centroid_pickup"].y
     
-    gdf_airport["dropoff_longitude"] = gdf_airport["centroid_dropoff"].apply(lambda p: p.x)
+    gdf_airport["dropoff_longitude"] = gdf_airport["centroid_dropoff"].apply(lambda p: p.x) # extrae la x y la y
     gdf_airport["dropoff_latitude"] = gdf_airport["centroid_dropoff"].apply(lambda p: p.y)
     return gdf_airport
 
@@ -137,8 +137,7 @@ def fetch_airport_borough(date, start_time, end_time, airport, toggle_value):
     WHERE {where_condition}
     AND t.tpep_pickup_datetime between '{date} {start_time}' and '{date} {end_time}'
     GROUP BY {group_by_condition}
-    """
-    #print("Upit: ", query)
+    """     # cantidad de viajes de taxi entre un aeropuerto y todos los barrios de la ciudad, dependiendo de la dirección del viaje (si es de llegada o salida)
     df_borough_airport = pd.read_sql(query, engine)
     df_borough_airport["centroid_dropoff"] = df_borough_airport["centroid_dropoff"].apply(wkt.loads)
 
@@ -155,79 +154,84 @@ def generate_large_arc(start, end, num_points=30, arc_height_factor=0.7, peak_po
     
     arc_lats, arc_lons = [], []
     
-    for i in np.linspace(0, 1, num_points):
-        # Pravimo interpoliranu tačku između start i end
-        interpolated_lat = lat1 + i * (lat2 - lat1)
-        interpolated_lon = lon1 + i * (lon2 - lon1)  
+    for i in np.linspace(0, 1, num_points): # Itera i desde 0 hasta 1, dividiendo el intervalo en num_points partes iguales (por ejemplo 30 puntos equidistantes).
+        interpolated_lat = lat1 + i * (lat2 - lat1) # Calcula el punto medio linealmente entre el inicio y el fin para latitud y longitud, según el factor i.
+        interpolated_lon = lon1 + i * (lon2 - lon1) 
 
         if i <= peak_position:
-            x = i / peak_position  # Normalizujemo na [0,1] za prvu polovinu
-            height = np.sin(x * np.pi/2)  # Raste do pika
+            # Calcula una variable normalizada 'x' que va de 0 a 1 en la primera mitad del arco,
+            # escalando 'i' usando el seno respecto al punto donde se alcanza el pico (peak_position)
+            x = i / peak_position 
+            height = np.sin(x * np.pi/2) 
         else:
-            x = (i - peak_position) / (1 - peak_position)  # Normalizujemo za drugu polovinu
-            height = np.cos(x * np.pi/2)  # Opada od pika
+            # segunda mitad del arco
+            x = (i - peak_position) / (1 - peak_position)
+            height = np.cos(x * np.pi/2)
         
-        interpolated_lat += height * arc_height_factor * abs(lat2 - lat1)
+        interpolated_lat += height * arc_height_factor * abs(lat2 - lat1)   # añade curvatura respecto a la latitud
         
         arc_lats.append(interpolated_lat)
         arc_lons.append(interpolated_lon)
 
-       # widths.append(10 * (1 - i) + 1)  # Linearno smanjenje od 10 do 1
-
     return arc_lats, arc_lons
 
-# Putanja do vašeg icons foldera
-icon_files = glob.glob('./mapbox-maki-8.2.0-0-g6ab50f3/mapbox-maki-6ab50f3/icons/*.svg')
+icon_files = glob.glob('./mapbox-maki-8.2.0-0-g6ab50f3/mapbox-maki-6ab50f3/icons/*.svg')    # encuentra todos los archivos SVG en ese directorio
 
-# Ekstrakcija imena ikonica za Plotly
-plotly_icons = []
-for file_path in icon_files:
-    # Dobijanje imena fajla bez ekstenzije
-    filename = os.path.basename(file_path).replace('.svg', '')
+plotly_icons = []  
+
+for file_path in icon_files:   
+    filename = os.path.basename(file_path).replace('.svg', '')  # Obtiene solo el nombre del archivo sin la ruta completa y sin la extensión '.svg'
     
-    # Uklanjanje brojeva i crtica (npr. "airport-15" postaje "airport")
-    icon_name = filename.split('-')[0]
-    plotly_icons.append(icon_name)
+    icon_name = filename.split('-')[0]   # Divide el nombre del archivo por guiones '-' y toma solo la primera parte. Por ejemplo, 'airport-15' se convierte en 'airport'
+    
+    plotly_icons.append(icon_name)  # Añade ese nombre simplificado a la lista plotly_icons
 
-# Uklanjanje duplikata
-plotly_icons = list(set(plotly_icons))
-#plotly_icons
+plotly_icons = list(set(plotly_icons))  
+# Convierte la lista en un conjunto para eliminar nombres repetidos (duplicados)
+# Luego vuelve a convertirlo en lista para mantener el formato de lista
 
 
+# Lee un archivo SVG, lo convierte a un formato base64 para usarlo fácilmente en web o gráficos
 svg_icon = Path('./mapbox-maki-8.2.0-0-g6ab50f3/mapbox-maki-6ab50f3/icons/arrow.svg').read_text()
 encoded_image = base64.b64encode(svg_icon.encode('utf-8')).decode('utf-8')
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)  # silencia las advertencias de funciones obsoletas.
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])#, suppress_callback_exceptions=True)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])  # inicializa una app Dash con los estilos visuales de Bootstrap para usar en el diseño y componentes.
 
+# crea una página de error personalizada que se muestra cuando el usuario intenta acceder a una ruta que no existe en la app Dash.
 @app.server.errorhandler(404)
 def page_not_found(e):
     return html.Div("Custom 404 Error Page"), 404
 
+# Ejecuta una consulta SQL para obtener todas las fechas únicas de recogida de taxis y las guarda como una lista de fechas en Python usando pandas.
 query_dates = "select distinct tpep_pickup_datetime::date from taxi order by tpep_pickup_datetime::date;"
 available_dates = pd.read_sql(query_dates, engine)["tpep_pickup_datetime"].tolist()
 
+# Crea un diccionario llamado marks que asigna cada décima posición del rango de fechas (available_dates) a una etiqueta con formato de fecha ('YYYY-MM-DD') y un estilo de texto rojo para usar, por ejemplo, en un slider o gráfico con marcas.
 marks={i: {'label': available_dates[i].strftime('%Y-%m-%d'), 'style': {'color': 'red'}} 
-        for i in range(0, len(available_dates), 10)}  # Oznake na svakih 10 dana
-last_idx = len(available_dates) - 1
-if last_idx not in marks:
-    # Dodaj poslednji datum kao posebnu oznaku
-    last_date = available_dates[last_idx].strftime('%Y-%m-%d')
-    marks[last_idx] = {
-        'label': last_date,
-        'style': {'color': 'red'}  # Opciono: istakni drugom bojom
+        for i in range(0, len(available_dates), 10)}
+
+last_idx = len(available_dates) - 1  # Obtiene el índice del último elemento en la lista de fechas disponibles
+
+if last_idx not in marks:  # Comprueba si la última posición no está ya en el diccionario de marcas
+    # Añade la última fecha como una marca especial
+    last_date = available_dates[last_idx].strftime('%Y-%m-%d')  # Formatea la última fecha como cadena 'YYYY-MM-DD'
+    marks[last_idx] = {  # Crea una nueva entrada en 'marks' con el índice de la última fecha
+        'label': last_date,  # Etiqueta para mostrar en el slider o gráfico
+        'style': {'color': 'red'}  # Opcional: resalta la etiqueta con color rojo
     }
-    
+
 def plot_airports(fig, gdf_airport):
+    # plotea los aeropuertos con una X en el mapa usando sus centroides
     fig.add_trace(go.Scattermapbox(
         lon=gdf_airport["longitude"],
         lat=gdf_airport["latitude"],
-        hovertext=gdf_airport["zone"],  # Tekst za hover (može biti lista/Series)
-        hoverinfo='text',  # Prikazuje samo hovertext
+        hovertext=gdf_airport["zone"],
+        hoverinfo='text',  
         mode='text',
         text = 'X',
         textfont=dict(
-            size=20,  # Povećajte veličinu fonta
+            size=20,  
             color='black',
             weight='bold',
         ),
@@ -237,6 +241,7 @@ def plot_airports(fig, gdf_airport):
     return fig
     
 def plot_places(fig, gdf_airport, color):
+    # plotea los pickups en el mapa
     fig.add_trace(go.Scattermapbox(
         lon=gdf_airport["pickup_longitude"],
         lat=gdf_airport["pickup_latitude"],
@@ -249,11 +254,13 @@ def plot_places(fig, gdf_airport, color):
     return fig
 
 def get_arrow_angle(lon1, lat1, lon2, lat2):
+    # consigue los angulos entre la longitud y la latitude
     dx = lon2 - lon1
     dy = lat2 - lat1
     return math.degrees(math.atan2(dy, dx))
 
 def plot_lines(fig, gdf_airport, color, toggle_value, airport, arc_height_factor):
+    # plotea las lineas en el mapa usando la función generate_large_arc() de antes creada por nosotros
     for i in range(len(gdf_airport)):
         start_point = (gdf_airport['pickup_latitude'][i], gdf_airport['pickup_longitude'][i])
         end_point = (gdf_airport['dropoff_latitude'][i], gdf_airport['dropoff_longitude'][i])
@@ -283,6 +290,7 @@ def plot_lines(fig, gdf_airport, color, toggle_value, airport, arc_height_factor
     return fig
 
 def plot_lines_borough(fig, gdf_airport_borough , color, toggle_value, airport):
+    # plotea la lineas de los boroughs usando la función generate_large_arc() de antes
     global borough_centroids, gdf_airport_centroid
     
     for i, row in gdf_airport_borough.iterrows():
@@ -315,6 +323,7 @@ def plot_lines_borough(fig, gdf_airport_borough , color, toggle_value, airport):
     return fig
 
 def show_polygons(fig, gdf_polygons, name ):
+    # plotea el borde de los boroughs en el mapa
     for idx, row in gdf_polygons.iterrows():
         geom = row.geom
         if geom.geom_type == "MultiPolygon":
@@ -383,6 +392,7 @@ def show_polygons(fig, gdf_polygons, name ):
     return fig
 
 def update_map(selected_date, time_range, selected_borough, toggle_value):
+    # esta función genera un mapa visualizando viajes entre aeropuertos y barrios (o entre boroughs), con puntos y líneas, según los filtros de fecha, hora y ubicación que el usuario seleccione.
     global gdf_airport_centroid
     print(selected_date)
     
@@ -472,19 +482,19 @@ def get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value):
     WHERE {cond} IN ('JFK Airport', 'LaGuardia Airport', 'Newark Airport') {ekstra_condition}
     AND DATE(t.tpep_pickup_datetime) = '{selected_date}'
     GROUP BY {cond}, EXTRACT(HOUR FROM t.tpep_pickup_datetime)
-    ORDER BY hour, borough;
-    '''
+    ORDER BY hour, borough;    
+    '''     # obtiene el número de viajes por hora para cada aeropuerto, considerando si se están viendo viajes que terminan (dropoff) o comienzan (pickup) en el aeropuerto, y opcionalmente filtrando por un barrio específico en la zona opuesta.
 
     return pd.read_sql(query, engine)
 
 def update_streamgraph(selected_date, selected_borough, toggle_value):
-    
+    # generates streamgraph
     df_taxi_frequency = get_taxi_frequency_by_hour(selected_date, selected_borough, toggle_value)
     df_taxi_frequency_pivot = df_taxi_frequency.pivot_table(
         index='hour', 
         columns='borough', 
         values='drives',
-        fill_value=0  # Ako neki borough nema podatke za neki sat
+        fill_value=0  # "Si algún barrio no tiene datos para alguna hora"
     ).reset_index()
 
     stream_fig = go.Figure()
@@ -498,8 +508,8 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
             y=df_taxi_frequency_pivot[borough],
             name=borough,
             mode='lines',
-            stackgroup='one',  # Ključno za streamgraph!
-            line=dict(width=0.5, shape='spline', color = color_list[i % len(color_list)]),  # Glatke krivine
+            stackgroup='one',  # Clave para el streamgraph
+            line=dict(width=0.5, shape='spline', color = color_list[i % len(color_list)]),  # curvas suaves
             hoverinfo='x+y+name',
             hovertemplate=f'<b>{borough}</b><br>Hour: %{{x}}<br>Num of drives: %{{y}}<extra></extra>'
         ))
@@ -546,6 +556,7 @@ def update_streamgraph(selected_date, selected_borough, toggle_value):
     return stream_fig
 
 def get_tip_amount_borough(selected_date, time_range, toggle_value):
+    # consigue la media de los tips en el borough
     start_hour, end_hour = time_range
     start_time = time(hour=int(start_hour), minute=int((start_hour % 1) * 60))
     end_time = time(hour=int(end_hour), minute=int((end_hour % 1) * 60))
@@ -575,17 +586,13 @@ def get_tip_amount_borough(selected_date, time_range, toggle_value):
     return df_pom
 
 def get_tip_amount(selected_date, time_range, selected_borough, toggle_value):
+    # consigue la medioa de los tips en la zona 
     start_hour, end_hour = time_range
     start_time = time(hour=int(start_hour), minute=int((start_hour % 1) * 60))
     end_time = time(hour=int(end_hour), minute=int((end_hour % 1) * 60))
     
     where_cond = 'dz.zone'
     cond = 'pz'
-    #if toggle_value == 'dropoff':
-    #    cond = 'pz'
-    #    
-    #else:
-    #    cond = 'dz'
 
     query = f'''
     SELECT 
@@ -605,6 +612,7 @@ def get_tip_amount(selected_date, time_range, selected_borough, toggle_value):
     return df_pom
 
 def update_heatmap(selected_date, time_range, selected_borough, toggle_value):
+    # genera el heatmap
     if selected_borough:
         query = f'''SELECT zone, borough, ST_AsText(geom) AS geom 
         FROM taxi_zones
@@ -694,14 +702,14 @@ initial_index = len(available_dates) // 2
 initial_date = available_dates[initial_index] 
 
 initial_time_range = [8, 12]
-figure_initial = update_map(initial_date, initial_time_range, None, 'dropoff')
-streamgraph_figure_initial = update_streamgraph(initial_date, None, 'dropoff')
-heatmap_figure_initial = update_heatmap(initial_date, initial_time_range, None, 'dropoff')
+figure_initial = update_map(initial_date, initial_time_range, None, 'dropoff')  # initial values for flowmap
+streamgraph_figure_initial = update_streamgraph(initial_date, None, 'dropoff')  # initial values for streamgraph
+heatmap_figure_initial = update_heatmap(initial_date, initial_time_range, None, 'dropoff')  # initial values for heatmap
 
 white_square_shadow_box = '0 0 10px rgba(0,0,0,0.1)'
-options_start_time = [{'label': f'{i}:00h', 'value': i} for i in range(0, 24)]
-options_final_time = [{'label': f'{i}:00h', 'value': i} for i in range(0, 24)]
-options_final_time.append({'label': '23:59h', 'value': 23})
+options_start_time = [{'label': f'{i}:00h', 'value': i} for i in range(0, 24)]  # labels of the dropdown start time
+options_final_time = [{'label': f'{i}:00h', 'value': i} for i in range(0, 24)]  # labels for the dropdown end time
+options_final_time.append({'label': '23:59h', 'value': 23}) # add the 23:59H
 
 app.layout = html.Div([
 
@@ -1012,7 +1020,7 @@ def update_end_time_options(start_hour):
 
 @app.callback(
     [Output('from-airport-label', 'className'),
-     Output('to-airport-label', 'className')],
+    Output('to-airport-label', 'className')],
     [Input('location-toggle', 'value')]
 )
 def update_labels(toggle_value):
